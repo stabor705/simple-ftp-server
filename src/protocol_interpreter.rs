@@ -1,4 +1,4 @@
-use crate::data_transfer_process::{DataTransferProcess, DataTypes, DataStructures, TransferModes, DataFormats};
+use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat};
 
 use std::net::{TcpListener, TcpStream, IpAddr, ToSocketAddrs, SocketAddr};
 use std::io::{Result, Write, Read, Error};
@@ -95,7 +95,7 @@ impl From<io::Error> for Reply {
 
 #[derive(Display, EnumString, PartialEq, Debug)]
 #[strum(ascii_case_insensitive)]
-enum Commands {
+enum Instruction {
     // Implemented
 
     User,
@@ -136,7 +136,7 @@ enum Commands {
 }
 
 struct Command {
-    pub command: Commands,
+    pub instruction: Instruction,
     pub args: Arguments
 }
 
@@ -185,17 +185,17 @@ impl From<ArgError> for Reply {
 impl FromStr for Command {
     type Err = io::Error;
     fn from_str(string: &str) -> Result<Command> {
-        let (command, args) = match string.split_once(' ') {
+        let (instruction, args) = match string.split_once(' ') {
             Some((command, args)) => (command, Some(args)),
             None => (string, None)
         };
-        let command = command.parse::<Commands>()
+        let instruction = instruction.parse::<Instruction>()
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         let args: Vec<String> = match args {
             Some(args) => args.split(' ').map(| x | x.to_owned()).collect(),
             None => Vec::new()
         };
-        Ok(Command { command, args: Arguments { args } })
+        Ok(Command { instruction, args: Arguments { args } })
     }
 }
 
@@ -206,9 +206,9 @@ pub struct Context {
     pub has_quit: bool,
     pub username: String,
     pub password: String,
-    pub data_type: DataTypes,
-    pub data_structure: DataStructures,
-    pub transfer_mode: TransferModes
+    pub data_type: DataType,
+    pub data_structure: DataStructure,
+    pub transfer_mode: TransferMode
 }
 
 impl Context {
@@ -220,9 +220,9 @@ impl Context {
             has_quit: false,
             username: "anonymous".to_owned(),
             password: "anonymous".to_owned(),
-            data_type: DataTypes::ASCII(DataFormats::NonPrint),
-            data_structure: DataStructures::FileStructure,
-            transfer_mode: TransferModes::Stream
+            data_type: DataType::ASCII(DataFormat::NonPrint),
+            data_structure: DataStructure::FileStructure,
+            transfer_mode: TransferMode::Stream
         }
     }
 }
@@ -328,16 +328,16 @@ impl ProtocolInterpreter {
 
     fn dispatch_command(&mut self, command: Command, ctx: &mut Context) -> Reply {
         let args = &command.args;
-        match command.command {
-            Commands::Quit => Self::quit(ctx),
-            Commands::Noop => Reply::CommandOk,
-            Commands::Port => Self::port(args, ctx),
-            Commands::User => Self::username(args, ctx),
-            Commands::Pass => Self::password(args, ctx),
-            Commands::Type => Self::type_(args, ctx),
-            Commands::Stru => Self::stru(args, ctx),
-            Commands::Mode => Self::mode(args, ctx),
-            Commands::Pasv => self.pasv(args, ctx),
+        match command.instruction {
+            Instruction::Quit => Self::quit(ctx),
+            Instruction::Noop => Reply::CommandOk,
+            Instruction::Port => Self::port(args, ctx),
+            Instruction::User => Self::username(args, ctx),
+            Instruction::Pass => Self::password(args, ctx),
+            Instruction::Type => Self::type_(args, ctx),
+            Instruction::Stru => Self::stru(args, ctx),
+            Instruction::Mode => Self::mode(args, ctx),
+            Instruction::Pasv => self.pasv(args, ctx),
             _ => Reply::CommandNotImplemented
         }
     }
@@ -399,27 +399,27 @@ impl ProtocolInterpreter {
         };
         match data_type {
             //TODO: much them both at the same time?
-            DataTypes::ASCII(_) => {
+            DataType::ASCII(_) => {
                 let data_format = match args.get_optional_arg(1) {
                     Ok(data_format) => data_format,
                     Err(e) => return e.into()
                 };
-                ctx.data_type = DataTypes::ASCII(data_format);
+                ctx.data_type = DataType::ASCII(data_format);
             }
-            DataTypes::EBCDIC(_) => {
+            DataType::EBCDIC(_) => {
                 let data_format = match args.get_optional_arg(1) {
                     Ok(data_format) => data_format,
                     Err(e) => return e.into()
                 };
-                ctx.data_type = DataTypes::ASCII(data_format);
+                ctx.data_type = DataType::ASCII(data_format);
             }
-            DataTypes::Image => ctx.data_type = DataTypes::Image,
-            DataTypes::Local(_) => {
+            DataType::Image => ctx.data_type = DataType::Image,
+            DataType::Local(_) => {
                 let byte_size = match args.get_arg(1) {
                     Ok(byte_size) => byte_size,
                     Err(e) => return e.into()
                 };
-                ctx.data_type = DataTypes::Local(byte_size);
+                ctx.data_type = DataType::Local(byte_size);
             }
         }
         Reply::CommandOk
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn test_command_from_string() {
         let command = Command::from_str("QuIt zabilem grubasa").unwrap();
-        assert_eq!(command.command, Commands::QUIT);
+        assert_eq!(command.command, Instruction::QUIT);
         assert_eq!(command.arg.unwrap(), "zabilem grubasa");
 
         let command = Command::from_str("");
@@ -466,6 +466,6 @@ mod tests {
 
     #[test]
     fn mode_from_arg() {
-        let mode = "S".parse::<TransferModes>().unwrap();
+        let mode = "S".parse::<TransferMode>().unwrap();
     }
 }

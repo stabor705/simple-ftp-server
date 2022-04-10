@@ -9,11 +9,11 @@ use std::thread::sleep;
 use strum_macros::{Display, EnumString};
 
 #[derive(Display, EnumString)]
-pub enum DataTypes {
+pub enum DataType {
     #[strum(serialize="A")]
-    ASCII(DataFormats),
+    ASCII(DataFormat),
     #[strum(serialize="E")]
-    EBCDIC(DataFormats),
+    EBCDIC(DataFormat),
     #[strum(serialize="I")]
     Image,
     #[strum(serialize="L")]
@@ -21,7 +21,7 @@ pub enum DataTypes {
 }
 
 #[derive(Display, EnumString)]
-pub enum DataFormats {
+pub enum DataFormat {
     #[strum(serialize="N")]
     NonPrint,
     #[strum(serialize="T")]
@@ -30,14 +30,14 @@ pub enum DataFormats {
     CarriageControl
 }
 
-impl Default for DataFormats {
+impl Default for DataFormat {
     fn default() -> Self {
         Self::NonPrint
     }
 }
 
 #[derive(Display, EnumString)]
-pub enum DataStructures {
+pub enum DataStructure {
     #[strum(serialize="F")]
     FileStructure,
     #[strum(serialize="R")]
@@ -47,7 +47,7 @@ pub enum DataStructures {
 }
 
 #[derive(Display, EnumString)]
-pub enum TransferModes {
+pub enum TransferMode {
     #[strum(serialize="S")]
     Stream,
     #[strum(serialize="B")]
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn test_serializing_parameters() {
         let data_type = "A N".parse::<DataType>()?;
-        assert_eq!(data_type.data_type, DataTypes::ASCII);
-        assert_eq!(data_type.data_format, DataFormats::NonPrint);
+        assert_eq!(data_type.data_type, DataType::ASCII);
+        assert_eq!(data_type.data_format, DataFormat::NonPrint);
     }
 }
