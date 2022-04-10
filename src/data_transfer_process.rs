@@ -1,14 +1,12 @@
-use crate::protocol_interpreter::Context;
-
-use std::net::{TcpStream, SocketAddr};
+use std::net::{TcpStream, SocketAddr, TcpListener, Ipv4Addr, IpAddr};
 use std::fs::{File};
-use std::io;
 use std::path::Path;
-use std::io::{Read, Result, Write};
+use std::io::{Read, Write, Result, Error, ErrorKind};
 use std::str::FromStr;
+use std::time::{Duration, Instant};
+use std::thread::sleep;
 
 use strum_macros::{Display, EnumString};
-use crate::data_transfer_process::DataFormats::NonPrint;
 
 #[derive(Display, EnumString)]
 pub enum DataTypes {
@@ -34,7 +32,7 @@ pub enum DataFormats {
 
 impl Default for DataFormats {
     fn default() -> Self {
-        NonPrint
+        Self::NonPrint
     }
 }
 
@@ -59,17 +57,44 @@ pub enum TransferModes {
 }
 
 pub struct DataTransferProcess {
-    root: String
+    root: String,
+    mode: Box<dyn Mode>,
+    stream: Option<TcpStream>
 }
 
 impl DataTransferProcess {
     pub fn new(root: String) -> DataTransferProcess {
-        DataTransferProcess { root }
+        DataTransferProcess {
+            root,
+            mode: Box::new(Active {}),
+            stream: None
+        }
     }
 
-    pub fn send_file(&self, arg: &str, ctx: &Context) -> Result<()> {
-        let mut stream = TcpStream::connect(SocketAddr::new(ctx.ip, ctx.data_port))?;
-        let path = Path::new(&self.root).join(arg);
+    pub fn make_passive(&mut self) -> Result<u16> {
+        let passive = Passive::new(Duration::from_secs(120))?;
+        let port = passive.port();
+        self.mode = Box::new(passive);
+        log::info!("DTP started listening on port {}", port);
+        Ok(port)
+    }
+
+    pub fn make_active(&mut self) {
+        self.mode = Box::new(Active {});
+    }
+
+    pub fn connect(&mut self, addr: SocketAddr) -> Result<()> {
+        self.stream = Some(self.mode.connect(addr)?);
+        log::debug!("Stopped listening");
+        Ok(())
+    }
+
+    pub fn send_file(&mut self, path: &str) -> Result<()> {
+        let mut stream = match &self.stream {
+            Some(stream) => stream,
+            None => return Err(Error::from(ErrorKind::NotConnected))
+        };
+        let path = Path::new(&self.root).join(path);
         let mut file = File::open(path)?;
         loop {
             //TODO: How big should it be?
@@ -80,18 +105,64 @@ impl DataTransferProcess {
         }
         Ok(())
     }
+}
 
-    pub fn store(&self, arg: &str, ctx: &Context) -> Result<()> {
-        let mut file = File::create(Path::new(&self.root).join(arg))?;
-        let mut stream = TcpStream::connect(SocketAddr::new(ctx.ip, ctx.data_port))?;
-        loop {
-            //TODO: How big should it be?
-            let mut buf = [0; 512];
-            let n = stream.read(&mut buf)?;
-            if n == 0 { break; }
-            file.write_all(&buf)?;
+trait Mode {
+    fn connect(&self, addr: SocketAddr) -> Result<TcpStream>;
+}
+
+struct Active {}
+
+impl Mode for Active {
+    fn connect(&self, addr: SocketAddr) -> Result<TcpStream> {
+        TcpStream::connect(addr)
+    }
+}
+
+struct Passive {
+    listener: TcpListener,
+    timeout: Duration
+}
+
+impl Passive {
+    pub fn new(timeout: Duration) -> Result<Passive> {
+        Ok(Passive {
+            listener: TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?,
+            timeout
+        })
+    }
+
+    pub fn port(&self) -> u16 {
+        //TODO: I don't know why this function can error. Gotta get rid of this unwrap someday.
+        self.listener.local_addr().unwrap().port()
+    }
+}
+
+impl Mode for Passive {
+    fn connect(&self, addr: SocketAddr) -> Result<TcpStream> {
+        let start = Instant::now();
+        log::debug!("Started listening");
+        while start.elapsed() < self.timeout {
+            match self.listener.accept() {
+                Ok((stream, in_addr)) => {
+                    if in_addr.ip() == addr.ip() {
+                        log::info!("Accepting data connection from {}", in_addr);
+                        return Ok(stream);
+                    } else {
+                        log::info!("Dropping connection from {}. Incorrect ip address.", in_addr);
+                    }
+                }
+                Err(e) => {
+                    if e.kind() == ErrorKind::WouldBlock {
+                        sleep(Duration::from_millis(250));
+                        continue;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
         }
-        Ok(())
+        Err(Error::from(ErrorKind::TimedOut))
     }
 }
 

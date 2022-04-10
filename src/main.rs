@@ -19,6 +19,6 @@ fn main() {
 
         ]
     ).unwrap();
-    let dtp = DataTransferProcess::new(".".to_owned());
-    ProtocolInterpreter::new("127.0.0.1:2137", &dtp).unwrap().run();
+    let mut pi = ProtocolInterpreter::new(DataTransferProcess::new(".".to_owned()));
+    pi.run("127.0.0.1:2137");
 }
