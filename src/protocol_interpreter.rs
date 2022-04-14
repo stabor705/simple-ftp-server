@@ -204,28 +204,80 @@ impl FromStr for Command {
     }
 }
 
-pub struct Context {
-    pub client_ip: IpAddr,
-    pub client_data_port: u16,
-    pub server_data_port: u16,
+pub struct Client {
+    pub ip: IpAddr,
+    pub data_port: u16,
+    pub server_data_port: u16, //TODO: it probably shouldn't be here
     pub has_quit: bool,
     pub username: String,
     pub password: String,
-    pub dtp: DataTransferProcess
+    pub dtp: DataTransferProcess,
+
+    stream: TcpStream
 }
 
-impl Context {
-    fn new(addr: SocketAddr) -> Context {
-        Context {
-            client_ip: addr.ip(),
-            client_data_port: addr.port(),
+impl Client {
+    fn new(stream: TcpStream) -> Client {
+        let addr = stream.peer_addr().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        stream.set_write_timeout(Some(Duration::from_secs(60))).unwrap();
+
+        Client {
+            ip: addr.ip(),
+            data_port: addr.port(),
             server_data_port: 20,
             has_quit: false,
             username: "anonymous".to_owned(),
             password: "anonymous".to_owned(),
-            dtp: DataTransferProcess::new(".".to_owned())
+            dtp: DataTransferProcess::new(".".to_owned()),
+
+            stream
         }
     }
+
+    fn send_reply(&mut self, reply: Reply) -> Result<()> {
+        let text = format!("{} {}", reply as u32, reply.get_message().unwrap());
+        log::debug!("----> {}", text);
+        self.stream.write_all(text.as_bytes())?;
+        self.stream.write_all(CRLF.as_bytes())?;
+        Ok(())
+    }
+
+    fn send_reply_with_parameter(&mut self, reply: Reply, parameter: &str) -> Result<()> {
+        let text = format!("{} {} {}", reply as u32, reply.get_message().unwrap(), parameter);
+        log::debug!("----> {}", text);
+        self.stream.write_all(text.as_bytes())?;
+        self.stream.write_all(CRLF.as_bytes())?;
+        Ok(())
+    }
+
+    fn read_message(&mut self) -> Result<String> {
+        //TODO: is it a right way to do it?
+        //TODO: max message len
+        let mut message = String::new();
+        loop {
+            let mut buf = [0 as u8; 256];
+            let n = self.stream.read(&mut buf)?;
+            if n == 0 {
+                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Client shut connection"));
+            }
+            let new_text = from_utf8(&buf[0..n])
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            match new_text.find(CRLF) {
+                None => message.push_str(new_text),
+                Some(pos) => {
+                    message.push_str(&new_text[0..pos]);
+                    if pos != new_text.len() - 2 {
+                        log::warn!("A part of some command has been discarded: {}", new_text);
+                    }
+                    break;
+                }
+            }
+        }
+        log::debug!("<---- {}", message);
+        Ok(message)
+    }
+
 }
 
 pub struct ProtocolInterpreter {}
@@ -250,84 +302,39 @@ impl ProtocolInterpreter {
 
     fn handle_new_connection(&self, mut stream: TcpStream) -> Result<()> {
         //TODO: Get rid of this unwrap
-        let peer_addr = stream.peer_addr().unwrap();
-        log::info!("Got a new connection from {}", peer_addr);
-        stream.set_read_timeout(Some(Duration::from_secs(60)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(60)))?;
-        Self::send_reply(Reply::ServiceReady, &mut stream)?;
+        let mut client = Client::new(stream);
+        log::info!("Got a new connection from {}", client.ip);
+        client.send_reply(Reply::ServiceReady)?;
 
-        let mut ctx = Context::new(peer_addr);
-        while !ctx.has_quit  {
-            let message = Self::read_message(&mut stream)?;
+        while !client.has_quit  {
+            let message = client.read_message()?;
             let command = match Command::from_str(message.as_str()) {
                 Ok(command) => command,
                 Err(_) => {
-                    Self::send_reply(Reply::SyntaxError, &mut stream);
+                    client.send_reply(Reply::SyntaxError);
                     continue;
                 }
             };
             let args = &command.args;
             for action in Self::dispatch_command(&command) {
-                let reply = action(args, &mut ctx);
+                let reply = action(args, &mut client);
                 if reply == Reply::EnteringPassiveMode {
-                    let p1 = ctx.server_data_port >> 8;
-                    let p2 = ctx.server_data_port & 0b0000000011111111;
+                    let p1 = client.server_data_port >> 8;
+                    let p2 = client.server_data_port & 0b0000000011111111;
                     let addr_info = format!("({},{},{},{},{},{})", 127, 0, 0, 1, p1, p2);
-                    Self::send_reply_with_parameter(reply, &mut stream, addr_info.as_str());
-                    // self.dtp.connect(SocketAddr::new(ctx.client_ip, ctx.client_data_port));
+                    client.send_reply_with_parameter(reply, addr_info.as_str());
                 } else {
-                    Self::send_reply(reply, &mut stream)?;
+                    client.send_reply(reply)?;
                 }
             }
         }
-        log::info!("Connection with client {} properly closed.", peer_addr);
+        log::info!("Connection with client {} properly closed.", client.ip);
         Ok(())
     }
 
-    fn send_reply(reply: Reply, stream: &mut TcpStream) -> Result<()> {
-        let text = format!("{} {}", reply as u32, reply.get_message().unwrap());
-        log::debug!("----> {}", text);
-        stream.write_all(text.as_bytes())?;
-        stream.write_all(CRLF.as_bytes())?;
-        Ok(())
-    }
 
-    fn send_reply_with_parameter(reply: Reply, stream: &mut TcpStream, parameter: &str) -> Result<()> {
-        let text = format!("{} {} {}", reply as u32, reply.get_message().unwrap(), parameter);
-        log::debug!("----> {}", text);
-        stream.write_all(text.as_bytes())?;
-        stream.write_all(CRLF.as_bytes())?;
-        Ok(())
-    }
 
-    fn read_message(stream: &mut TcpStream) -> Result<String> {
-        //TODO: is it a right way to do it?
-        //TODO: max message len
-        let mut message = String::new();
-        loop {
-            let mut buf = [0 as u8; 256];
-            let n = stream.read(&mut buf)?;
-            if n == 0 {
-                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Client shut connection"));
-            }
-            let new_text = from_utf8(&buf[0..n])
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-            match new_text.find(CRLF) {
-                None => message.push_str(new_text),
-                Some(pos) => {
-                    message.push_str(&new_text[0..pos]);
-                    if pos != new_text.len() - 2 {
-                        log::warn!("A part of some command has been discarded: {}", new_text);
-                    }
-                    break;
-                }
-            }
-        }
-        log::debug!("<---- {}", message);
-        Ok(message)
-    }
-
-    fn dispatch_command(command: &Command) -> Vec<fn(&Arguments, &mut Context) -> Reply>
+    fn dispatch_command(command: &Command) -> Vec<fn(&Arguments, &mut Client) -> Reply>
     {
         match command.instruction {
             Instruction::Quit => vec![Self::quit],
@@ -344,16 +351,16 @@ impl ProtocolInterpreter {
         }
     }
 
-    fn noop(args: &Arguments, ctx: &mut Context) -> Reply {
+    fn noop(args: &Arguments, client: &mut Client) -> Reply {
         Reply::CommandOk
     }
 
-    fn not_implemented(args: &Arguments, ctx: &mut Context) -> Reply {
+    fn not_implemented(args: &Arguments, client: &mut Client) -> Reply {
         Reply::CommandNotImplemented
     }
 
-    fn quit(args: &Arguments, ctx: &mut Context) -> Reply {
-        ctx.has_quit = true;
+    fn quit(args: &Arguments, client: &mut Client) -> Reply {
+        client.has_quit = true;
         Reply::ServiceClosing
     }
 
@@ -374,7 +381,7 @@ impl ProtocolInterpreter {
         Ok(SocketAddr::new(ip, port))
 }
 
-    fn port(args: &Arguments, ctx: &mut Context) -> Reply
+    fn port(args: &Arguments, client: &mut Client) -> Reply
     {
         let input: String = match args.get_arg(0) {
             Ok(input) => input,
@@ -384,47 +391,47 @@ impl ProtocolInterpreter {
             Ok(addr) => addr,
             Err(e) => return e.into()
         };
-        ctx.client_data_port = addr.port();
+        client.data_port = addr.port();
         Reply::CommandOk
     }
 
-    fn username(args: &Arguments, ctx: &mut Context) -> Reply
+    fn username(args: &Arguments, client: &mut Client) -> Reply
     {
-        ctx.username = match args.get_arg(0) {
+        client.username = match args.get_arg(0) {
             Ok(x) => x,
             Err(e) => return e.into()
         };
         Reply::UsernameOk
     }
 
-    fn password(args: &Arguments, ctx: &mut Context) -> Reply
+    fn password(args: &Arguments, client: &mut Client) -> Reply
     {
-        ctx.password = match args.get_arg(0) {
+        client.password = match args.get_arg(0) {
             Ok(x) => x,
             Err(e) => return e.into()
         };
         Reply::UserLoggedIn
     }
 
-    fn mode(args: &Arguments, ctx: &mut Context) -> Reply
+    fn mode(args: &Arguments, client: &mut Client) -> Reply
     {
-        ctx.dtp.transfer_mode = match args.get_arg(0) {
+        client.dtp.transfer_mode = match args.get_arg(0) {
             Ok(x) => x,
             Err(e) => return e.into()
         };
         Reply::CommandOk
     }
 
-    fn stru(args: &Arguments, ctx: &mut Context) -> Reply
+    fn stru(args: &Arguments, client: &mut Client) -> Reply
     {
-        ctx.dtp.data_structure = match args.get_arg(0) {
+        client.dtp.data_structure = match args.get_arg(0) {
             Ok(x) => x,
             Err(e) => return e.into()
         };
         Reply::CommandOk
     }
 
-    fn type_(args: &Arguments, ctx: &mut Context) -> Reply {
+    fn type_(args: &Arguments, client: &mut Client) -> Reply {
         let data_type = match args.get_arg(0) {
             Ok(data_type) => data_type,
             Err(e) => return e.into()
@@ -436,48 +443,48 @@ impl ProtocolInterpreter {
                     Ok(data_format) => data_format,
                     Err(e) => return e.into()
                 };
-                ctx.dtp.data_type = DataType::ASCII(data_format);
+                client.dtp.data_type = DataType::ASCII(data_format);
             }
             DataType::EBCDIC(_) => {
                 let data_format = match args.get_optional_arg(1) {
                     Ok(data_format) => data_format,
                     Err(e) => return e.into()
                 };
-                ctx.dtp.data_type = DataType::ASCII(data_format);
+                client.dtp.data_type = DataType::ASCII(data_format);
             }
-            DataType::Image => ctx.dtp.data_type = DataType::Image,
+            DataType::Image => client.dtp.data_type = DataType::Image,
             DataType::Local(_) => {
                 let byte_size = match args.get_arg(1) {
                     Ok(byte_size) => byte_size,
                     Err(e) => return e.into()
                 };
-                ctx.dtp.data_type = DataType::Local(byte_size);
+                client.dtp.data_type = DataType::Local(byte_size);
             }
         }
         Reply::CommandOk
     }
 
-    fn pasv(args: &Arguments, ctx: &mut Context) -> Reply {
-        ctx.server_data_port = match ctx.dtp.make_passive() {
+    fn pasv(args: &Arguments, client: &mut Client) -> Reply {
+        client.server_data_port = match client.dtp.make_passive() {
             Ok(port) => port,
             Err(e) => return e.into()
         };
         Reply::EnteringPassiveMode
     }
 
-    fn retr(args: &Arguments, ctx: &mut Context) -> Reply {
+    fn retr(args: &Arguments, client: &mut Client) -> Reply {
         let path: String = match args.get_arg(0) {
             Ok(path) => path,
             Err(e) => return e.into()
         };
-        if let Err(e) = ctx.dtp.send_file(path.as_str(), SocketAddr::new(ctx.client_ip, ctx.client_data_port)) {
+        if let Err(e) = client.dtp.send_file(path.as_str(), SocketAddr::new(client.ip, client.data_port)) {
             return e.into();
         }
         Reply::FileActionSuccessful
     }
 
-    fn connect_dtp(args: &Arguments, ctx: &mut Context) -> Reply {
-        match ctx.dtp.connect(SocketAddr::new(ctx.client_ip, ctx.client_data_port)) {
+    fn connect_dtp(args: &Arguments, client: &mut Client) -> Reply {
+        match client.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
             Ok(()) => Reply::OpeningDataConnection,
             Err(e) => e.into()
         }
