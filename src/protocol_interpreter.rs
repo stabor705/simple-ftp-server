@@ -1,19 +1,22 @@
 use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat};
 
-use std::net::{TcpListener, TcpStream, IpAddr, ToSocketAddrs, SocketAddr};
-use std::io::{Result, Write, Read, Error};
+use std::net::{TcpListener, TcpStream, IpAddr, ToSocketAddrs, SocketAddr, Ipv4Addr};
+use std::io::{Result, Write, Read, Error, ErrorKind};
 use std::io;
 use std::time::{Duration};
 use std::str::{FromStr, from_utf8};
 use std::string::ToString;
 
+use log::log_enabled;
 use strum::EnumMessage;
 use strum_macros::{Display, EnumString, EnumMessage};
-use crate::protocol_interpreter::Reply::{CantOpenDataConnection, LocalProcessingError};
 
 //#[derive(PartialEq, Hash, Clone, Copy)]
 #[derive(EnumMessage, PartialEq, Clone, Copy)]
 enum Reply {
+    #[strum(message = "Opening data connection")]
+    OpeningDataConnection = 150,
+
     #[strum(message = "Command okay")]
     CommandOk = 200,
     #[strum(message = "Command not implemented, superfluous at this site")]
@@ -85,6 +88,8 @@ enum Reply {
 impl From<io::Error> for Reply {
     fn from(e: Error) -> Self {
         use io::ErrorKind::*;
+        use Reply::*;
+        log::error!("Error {}", e);
 
         match e.kind() {
             ConnectionRefused => CantOpenDataConnection,
@@ -106,6 +111,8 @@ enum Instruction {
     Stru,
     Mode,
     Noop,
+    Retr,
+    Pasv,
     // Not implemented
 
     Acct,
@@ -113,8 +120,6 @@ enum Instruction {
     Cdup,
     Smnt,
     Rein,
-    Pasv,
-    Retr,
     Stor,
     Stou,
     Appe,
@@ -206,9 +211,7 @@ pub struct Context {
     pub has_quit: bool,
     pub username: String,
     pub password: String,
-    pub data_type: DataType,
-    pub data_structure: DataStructure,
-    pub transfer_mode: TransferMode
+    pub dtp: DataTransferProcess
 }
 
 impl Context {
@@ -220,25 +223,17 @@ impl Context {
             has_quit: false,
             username: "anonymous".to_owned(),
             password: "anonymous".to_owned(),
-            data_type: DataType::ASCII(DataFormat::NonPrint),
-            data_structure: DataStructure::FileStructure,
-            transfer_mode: TransferMode::Stream
+            dtp: DataTransferProcess::new(".".to_owned())
         }
     }
 }
 
-pub struct ProtocolInterpreter{
-    dtp: DataTransferProcess
-}
+pub struct ProtocolInterpreter {}
 
 const CRLF: &'static str = "\r\n";
 
 impl ProtocolInterpreter {
-    pub fn new(dtp: DataTransferProcess) -> ProtocolInterpreter {
-        ProtocolInterpreter { dtp }
-    }
-
-    pub fn run<A: ToSocketAddrs>(&mut self, addr: A) -> Result<()> {
+    pub fn run<A: ToSocketAddrs>(&self, addr: A) -> Result<()> {
         let listener = TcpListener::bind(addr)?;
         for stream in listener.incoming() {
             match stream {
@@ -253,7 +248,7 @@ impl ProtocolInterpreter {
         Ok(())
     }
 
-    fn handle_new_connection(&mut self, mut stream: TcpStream) -> Result<()> {
+    fn handle_new_connection(&self, mut stream: TcpStream) -> Result<()> {
         //TODO: Get rid of this unwrap
         let peer_addr = stream.peer_addr().unwrap();
         log::info!("Got a new connection from {}", peer_addr);
@@ -264,19 +259,25 @@ impl ProtocolInterpreter {
         let mut ctx = Context::new(peer_addr);
         while !ctx.has_quit  {
             let message = Self::read_message(&mut stream)?;
-            let command = Command::from_str(message.as_str());
-            let reply = match command {
-                Ok(command) => self.dispatch_command(command, &mut ctx),
-                Err(_) => Reply::SyntaxError
+            let command = match Command::from_str(message.as_str()) {
+                Ok(command) => command,
+                Err(_) => {
+                    Self::send_reply(Reply::SyntaxError, &mut stream);
+                    continue;
+                }
             };
-            if reply == Reply::EnteringPassiveMode {
-                let p1 = ctx.server_data_port >> 8;
-                let p2 = ctx.server_data_port & 0b0000000011111111;
-                let addr_info = format!("({},{},{},{},{},{})", 127, 0, 0, 1, p1, p2);
-                Self::send_reply_with_parameter(reply, &mut stream, addr_info.as_str());
-                self.dtp.connect(SocketAddr::new(ctx.client_ip, ctx.client_data_port));
-            } else {
-                Self::send_reply(reply, &mut stream)?;
+            let args = &command.args;
+            for action in Self::dispatch_command(&command) {
+                let reply = action(args, &mut ctx);
+                if reply == Reply::EnteringPassiveMode {
+                    let p1 = ctx.server_data_port >> 8;
+                    let p2 = ctx.server_data_port & 0b0000000011111111;
+                    let addr_info = format!("({},{},{},{},{},{})", 127, 0, 0, 1, p1, p2);
+                    Self::send_reply_with_parameter(reply, &mut stream, addr_info.as_str());
+                    // self.dtp.connect(SocketAddr::new(ctx.client_ip, ctx.client_data_port));
+                } else {
+                    Self::send_reply(reply, &mut stream)?;
+                }
             }
         }
         log::info!("Connection with client {} properly closed.", peer_addr);
@@ -326,33 +327,64 @@ impl ProtocolInterpreter {
         Ok(message)
     }
 
-    fn dispatch_command(&mut self, command: Command, ctx: &mut Context) -> Reply {
-        let args = &command.args;
+    fn dispatch_command(command: &Command) -> Vec<fn(&Arguments, &mut Context) -> Reply>
+    {
         match command.instruction {
-            Instruction::Quit => Self::quit(ctx),
-            Instruction::Noop => Reply::CommandOk,
-            Instruction::Port => Self::port(args, ctx),
-            Instruction::User => Self::username(args, ctx),
-            Instruction::Pass => Self::password(args, ctx),
-            Instruction::Type => Self::type_(args, ctx),
-            Instruction::Stru => Self::stru(args, ctx),
-            Instruction::Mode => Self::mode(args, ctx),
-            Instruction::Pasv => self.pasv(args, ctx),
-            _ => Reply::CommandNotImplemented
+            Instruction::Quit => vec![Self::quit],
+            Instruction::Noop => vec![Self::noop] ,
+            Instruction::Port => vec![Self::port],
+            Instruction::User => vec![Self::username],
+            Instruction::Pass => vec![Self::password],
+            Instruction::Type => vec![Self::type_],
+            Instruction::Stru => vec![Self::stru],
+            Instruction::Mode => vec![Self::mode],
+            Instruction::Pasv => vec![Self::pasv],
+            Instruction::Retr => vec![Self::connect_dtp, Self::retr],
+            _ => vec![Self::not_implemented]
         }
     }
 
-    fn quit(ctx: &mut Context) -> Reply {
+    fn noop(args: &Arguments, ctx: &mut Context) -> Reply {
+        Reply::CommandOk
+    }
+
+    fn not_implemented(args: &Arguments, ctx: &mut Context) -> Reply {
+        Reply::CommandNotImplemented
+    }
+
+    fn quit(args: &Arguments, ctx: &mut Context) -> Reply {
         ctx.has_quit = true;
         Reply::ServiceClosing
     }
 
+    fn parse_port(input: &str) -> Result<SocketAddr> {
+        let mut nums = Vec::new();
+        for num in input.split(',') {
+            let num = match num.parse::<u8>() {
+                Ok(num) => num,
+                Err(e) => return Err(Error::new(ErrorKind::InvalidInput, e))
+            };
+            nums.push(num);
+        }
+        if nums.len() != 6 {
+            return Err(Error::from(ErrorKind::InvalidInput));
+        }
+        let ip = IpAddr::V4(Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]));
+        let port: u16 = ((nums[4] as u16) << 8) + nums[5] as u16;
+        Ok(SocketAddr::new(ip, port))
+}
+
     fn port(args: &Arguments, ctx: &mut Context) -> Reply
     {
-        ctx.client_data_port = match args.get_arg(0) {
-            Ok(data_port) => data_port,
+        let input: String = match args.get_arg(0) {
+            Ok(input) => input,
             Err(e) => return e.into()
         };
+        let addr = match Self::parse_port(input.as_str()) {
+            Ok(addr) => addr,
+            Err(e) => return e.into()
+        };
+        ctx.client_data_port = addr.port();
         Reply::CommandOk
     }
 
@@ -376,7 +408,7 @@ impl ProtocolInterpreter {
 
     fn mode(args: &Arguments, ctx: &mut Context) -> Reply
     {
-        ctx.transfer_mode = match args.get_arg(0) {
+        ctx.dtp.transfer_mode = match args.get_arg(0) {
             Ok(x) => x,
             Err(e) => return e.into()
         };
@@ -385,7 +417,7 @@ impl ProtocolInterpreter {
 
     fn stru(args: &Arguments, ctx: &mut Context) -> Reply
     {
-        ctx.data_structure = match args.get_arg(0) {
+        ctx.dtp.data_structure = match args.get_arg(0) {
             Ok(x) => x,
             Err(e) => return e.into()
         };
@@ -404,33 +436,51 @@ impl ProtocolInterpreter {
                     Ok(data_format) => data_format,
                     Err(e) => return e.into()
                 };
-                ctx.data_type = DataType::ASCII(data_format);
+                ctx.dtp.data_type = DataType::ASCII(data_format);
             }
             DataType::EBCDIC(_) => {
                 let data_format = match args.get_optional_arg(1) {
                     Ok(data_format) => data_format,
                     Err(e) => return e.into()
                 };
-                ctx.data_type = DataType::ASCII(data_format);
+                ctx.dtp.data_type = DataType::ASCII(data_format);
             }
-            DataType::Image => ctx.data_type = DataType::Image,
+            DataType::Image => ctx.dtp.data_type = DataType::Image,
             DataType::Local(_) => {
                 let byte_size = match args.get_arg(1) {
                     Ok(byte_size) => byte_size,
                     Err(e) => return e.into()
                 };
-                ctx.data_type = DataType::Local(byte_size);
+                ctx.dtp.data_type = DataType::Local(byte_size);
             }
         }
         Reply::CommandOk
     }
 
-    fn pasv(&mut self, args: &Arguments, ctx: &mut Context) -> Reply {
-        ctx.server_data_port = match self.dtp.make_passive() {
+    fn pasv(args: &Arguments, ctx: &mut Context) -> Reply {
+        ctx.server_data_port = match ctx.dtp.make_passive() {
             Ok(port) => port,
             Err(e) => return e.into()
         };
         Reply::EnteringPassiveMode
+    }
+
+    fn retr(args: &Arguments, ctx: &mut Context) -> Reply {
+        let path: String = match args.get_arg(0) {
+            Ok(path) => path,
+            Err(e) => return e.into()
+        };
+        if let Err(e) = ctx.dtp.send_file(path.as_str(), SocketAddr::new(ctx.client_ip, ctx.client_data_port)) {
+            return e.into();
+        }
+        Reply::FileActionSuccessful
+    }
+
+    fn connect_dtp(args: &Arguments, ctx: &mut Context) -> Reply {
+        match ctx.dtp.connect(SocketAddr::new(ctx.client_ip, ctx.client_data_port)) {
+            Ok(()) => Reply::OpeningDataConnection,
+            Err(e) => e.into()
+        }
     }
 }
 

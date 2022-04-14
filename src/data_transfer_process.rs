@@ -1,4 +1,4 @@
-use std::net::{TcpStream, SocketAddr, TcpListener, Ipv4Addr, IpAddr};
+use std::net::{TcpStream, SocketAddr, TcpListener, Ipv4Addr, IpAddr, ToSocketAddrs};
 use std::fs::{File};
 use std::path::Path;
 use std::io::{Read, Write, Result, Error, ErrorKind};
@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use std::thread::sleep;
 
 use strum_macros::{Display, EnumString};
+use crate::data_transfer_process::TransferMode::Stream;
 
 #[derive(Display, EnumString)]
 pub enum DataType {
@@ -59,7 +60,10 @@ pub enum TransferMode {
 pub struct DataTransferProcess {
     root: String,
     mode: Box<dyn Mode>,
-    stream: Option<TcpStream>
+    client: Option<TcpStream>,
+    pub data_type: DataType,
+    pub data_structure: DataStructure,
+    pub transfer_mode: TransferMode
 }
 
 impl DataTransferProcess {
@@ -67,7 +71,10 @@ impl DataTransferProcess {
         DataTransferProcess {
             root,
             mode: Box::new(Active {}),
-            stream: None
+            client: None,
+            data_type: DataType::ASCII(DataFormat::NonPrint),
+            data_structure: DataStructure::FileStructure,
+            transfer_mode: TransferMode::Stream
         }
     }
 
@@ -84,16 +91,12 @@ impl DataTransferProcess {
     }
 
     pub fn connect(&mut self, addr: SocketAddr) -> Result<()> {
-        self.stream = Some(self.mode.connect(addr)?);
-        log::debug!("Stopped listening");
+        self.client = Some(self.mode.connect(addr)?);
         Ok(())
     }
 
-    pub fn send_file(&mut self, path: &str) -> Result<()> {
-        let mut stream = match &self.stream {
-            Some(stream) => stream,
-            None => return Err(Error::from(ErrorKind::NotConnected))
-        };
+    pub fn send_file(&mut self, path: &str, addr: SocketAddr) -> Result<()> {
+        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = Path::new(&self.root).join(path);
         let mut file = File::open(path)?;
         loop {
@@ -101,7 +104,7 @@ impl DataTransferProcess {
             let mut buf = [0; 512];
             let n = file.read(&mut buf)?;
             if n == 0 { break; }
-            stream.write_all(&buf[0..n]);
+            client.write_all(&buf[0..n]);
         }
         Ok(())
     }
