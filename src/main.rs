@@ -1,13 +1,13 @@
 mod server;
 mod protocol_interpreter;
 mod data_transfer_process;
-
-use protocol_interpreter::ProtocolInterpreter;
+mod ftpserver;
 
 use simplelog::*;
 
 use std::fs::File;
 use crate::data_transfer_process::DataTransferProcess;
+use crate::ftpserver::FtpServer;
 
 fn main() {
     CombinedLogger::init(
@@ -19,6 +19,5 @@ fn main() {
 
         ]
     ).unwrap();
-    let mut pi = ProtocolInterpreter {};
-    pi.run("127.0.0.1:2137");
+    FtpServer::run("127.0.0.1:2137");
 }

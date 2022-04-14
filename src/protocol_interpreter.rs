@@ -7,7 +7,6 @@ use std::time::{Duration};
 use std::str::{FromStr, from_utf8};
 use std::string::ToString;
 
-use log::log_enabled;
 use strum::EnumMessage;
 use strum_macros::{Display, EnumString, EnumMessage};
 
@@ -83,6 +82,12 @@ enum Reply {
     ExceededStorageAllocation = 552,
     #[strum(message = "Requested action not taken. File name unknown")]
     FileNameUnknown = 553
+}
+
+impl ToString for Reply {
+    fn to_string(&self) -> String {
+        format!("{} {}", *self as u32, self.get_message().unwrap())
+    }
 }
 
 impl From<io::Error> for Reply {
@@ -235,18 +240,9 @@ impl Client {
         }
     }
 
-    fn send_reply(&mut self, reply: Reply) -> Result<()> {
-        let text = format!("{} {}", reply as u32, reply.get_message().unwrap());
-        log::debug!("----> {}", text);
-        self.stream.write_all(text.as_bytes())?;
-        self.stream.write_all(CRLF.as_bytes())?;
-        Ok(())
-    }
-
-    fn send_reply_with_parameter(&mut self, reply: Reply, parameter: &str) -> Result<()> {
-        let text = format!("{} {} {}", reply as u32, reply.get_message().unwrap(), parameter);
-        log::debug!("----> {}", text);
-        self.stream.write_all(text.as_bytes())?;
+    fn send_message(&mut self, msg: &str) -> Result<()> {
+        log::debug!("----> {}", msg);
+        self.stream.write_all(msg.as_bytes())?;
         self.stream.write_all(CRLF.as_bytes())?;
         Ok(())
     }
@@ -285,33 +281,18 @@ pub struct ProtocolInterpreter {}
 const CRLF: &'static str = "\r\n";
 
 impl ProtocolInterpreter {
-    pub fn run<A: ToSocketAddrs>(&self, addr: A) -> Result<()> {
-        let listener = TcpListener::bind(addr)?;
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    if let Err(e) = self.handle_new_connection(stream) {
-                        log::error!("An error while handling connection: {:?}", e);
-                    }
-                }
-                Err(e) => log::error!("An error occurred before connection took place: {}", e)
-            }
-        }
-        Ok(())
-    }
-
-    fn handle_new_connection(&self, mut stream: TcpStream) -> Result<()> {
+    pub fn handle_client(&self, mut stream: TcpStream) -> Result<()> {
         //TODO: Get rid of this unwrap
         let mut client = Client::new(stream);
         log::info!("Got a new connection from {}", client.ip);
-        client.send_reply(Reply::ServiceReady)?;
+        client.send_message(Reply::ServiceReady.to_string().as_str())?;
 
         while !client.has_quit  {
             let message = client.read_message()?;
             let command = match Command::from_str(message.as_str()) {
                 Ok(command) => command,
                 Err(_) => {
-                    client.send_reply(Reply::SyntaxError);
+                    client.send_message(Reply::SyntaxError.to_string().as_str());
                     continue;
                 }
             };
@@ -322,17 +303,15 @@ impl ProtocolInterpreter {
                     let p1 = client.server_data_port >> 8;
                     let p2 = client.server_data_port & 0b0000000011111111;
                     let addr_info = format!("({},{},{},{},{},{})", 127, 0, 0, 1, p1, p2);
-                    client.send_reply_with_parameter(reply, addr_info.as_str());
+                    client.send_message(format!("{} {}", reply.to_string(), addr_info).as_str());
                 } else {
-                    client.send_reply(reply)?;
+                    client.send_message(reply.to_string().as_str())?;
                 }
             }
         }
         log::info!("Connection with client {} properly closed.", client.ip);
         Ok(())
     }
-
-
 
     fn dispatch_command(command: &Command) -> Vec<fn(&Arguments, &mut Client) -> Reply>
     {
