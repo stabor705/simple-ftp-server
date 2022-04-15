@@ -58,7 +58,7 @@ pub enum TransferMode {
 }
 
 pub struct DataTransferProcess {
-    root: String,
+    working_dir: String,
     mode: Box<dyn Mode>,
     client: Option<TcpStream>,
     pub data_type: DataType,
@@ -69,7 +69,7 @@ pub struct DataTransferProcess {
 impl DataTransferProcess {
     pub fn new(root: String) -> DataTransferProcess {
         DataTransferProcess {
-            root,
+            working_dir: root,
             mode: Box::new(Active {}),
             client: None,
             data_type: DataType::ASCII(DataFormat::NonPrint),
@@ -78,26 +78,34 @@ impl DataTransferProcess {
         }
     }
 
-    pub fn make_passive(&mut self) -> Result<u16> {
+    pub fn make_passive(&mut self) -> Result<SocketAddr> {
         let passive = Passive::new(Duration::from_secs(120))?;
-        let port = passive.port();
+        let addr = passive.addr();
         self.mode = Box::new(passive);
-        log::info!("DTP started listening on port {}", port);
-        Ok(port)
+        log::info!("DTP started listening on port {}", addr);
+        Ok(addr)
     }
 
     pub fn make_active(&mut self) {
         self.mode = Box::new(Active {});
     }
 
-    pub fn connect(&mut self, addr: SocketAddr) -> Result<()> {
-        self.client = Some(self.mode.connect(addr)?);
-        Ok(())
+    pub fn connect(&mut self, addr: SocketAddr) -> Option<Result<()>> {
+        match self.client {
+            Some(_) => None,
+            None => match self.mode.connect(addr) {
+                Ok(client) => {
+                    self.client = Some(client);
+                    Some(Ok(()))
+                }
+                Err(e) => Some(Err(e))
+            }
+        }
     }
 
     pub fn send_file(&mut self, path: &str, addr: SocketAddr) -> Result<()> {
         let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
-        let path = Path::new(&self.root).join(path);
+        let path = Path::new(&self.working_dir).join(path);
         let mut file = File::open(path)?;
         loop {
             //TODO: How big should it be?
@@ -108,6 +116,7 @@ impl DataTransferProcess {
         }
         Ok(())
     }
+
 }
 
 trait Mode {
@@ -135,9 +144,9 @@ impl Passive {
         })
     }
 
-    pub fn port(&self) -> u16 {
+    pub fn addr(&self) -> SocketAddr {
         //TODO: I don't know why this function can error. Gotta get rid of this unwrap someday.
-        self.listener.local_addr().unwrap().port()
+        self.listener.local_addr().unwrap()
     }
 }
 

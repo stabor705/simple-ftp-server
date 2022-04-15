@@ -1,3 +1,5 @@
+use std::fmt::format;
+use std::fs::read;
 use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat};
 
 use std::net::{TcpListener, TcpStream, IpAddr, ToSocketAddrs, SocketAddr, Ipv4Addr};
@@ -9,84 +11,148 @@ use std::string::ToString;
 
 use strum::EnumMessage;
 use strum_macros::{Display, EnumString, EnumMessage};
+use crate::protocol_interpreter::Reply::NoReply;
 
 //#[derive(PartialEq, Hash, Clone, Copy)]
-#[derive(EnumMessage, PartialEq, Clone, Copy)]
+#[derive(EnumMessage, PartialEq)]
 enum Reply {
     #[strum(message = "Opening data connection")]
-    OpeningDataConnection = 150,
+    OpeningDataConnection,
 
     #[strum(message = "Command okay")]
-    CommandOk = 200,
+    CommandOk,
     #[strum(message = "Command not implemented, superfluous at this site")]
-    CommandNotImplemented = 202,
+    CommandNotImplemented,
     // 211
     #[strum(message = "Directory status")]
     DirectoryStatus,
     //214
     //215
     #[strum(message = "Service ready for new user")]
-    ServiceReady = 220,
+    ServiceReady,
     #[strum(message = "Service closing control connection")]
-    ServiceClosing = 221,
+    ServiceClosing,
     #[strum(message = "Data connection open; no transfer in progress")]
-    DataConnectionOpen = 225,
+    DataConnectionOpen,
     #[strum(message = "Closing data connection. Requested file action successful")]
-    FileActionSuccessful = 226,
-    #[strum(message = "Entering passive mode")]
-    EnteringPassiveMode = 227,
+    FileActionSuccessful,
+    #[strum(message = "Entering passive mode ({})")]
+    EnteringPassiveMode((Ipv4Addr, u16)),
     #[strum(message = "User logged in, proceed")]
-    UserLoggedIn = 230,
+    UserLoggedIn,
     #[strum(message = "Requested file action okay, proceed")]
-    FileActionOk = 250,
-    //257
+    FileActionOk,
+    #[strum(message = "\"{}\" created")]
+    Created(String),
 
     #[strum(message = "User name okay, need password")]
-    UsernameOk = 331,
+    UsernameOk,
     //332
     #[strum(message = "Requested file action pending further information")]
-    PendingFurtherInformation = 350,
+    PendingFurtherInformation,
 
     #[strum(message = "Service not available, closing control connection")]
-    ServiceNotAvailable = 421,
+    ServiceNotAvailable,
     #[strum(message = "Can't open data connection")]
-    CantOpenDataConnection = 425,
+    CantOpenDataConnection,
     #[strum(message = "Connection closed; transfer aborted")]
-    ConnectionClosed = 426,
+    ConnectionClosed,
     #[strum(message = "Requested file action not taken. File unavailable")]
-    FileActionNotTaken = 450,
+    FileActionNotTaken,
     #[strum(message = "Requested action aborted: local error in processing")]
-    LocalProcessingError = 451,
+    LocalProcessingError,
     #[strum(message = "Requested action not taken. Insufficient storage space in system")]
-    InsufficientStorageSpace = 452,
+    InsufficientStorageSpace,
 
     #[strum(message = "Syntax error, command unrecognized")]
-    SyntaxError = 500,
+    SyntaxError,
     #[strum(message = "Syntax error in parameters or arguments")]
-    SyntaxErrorArg = 501,
+    SyntaxErrorArg,
     #[strum(message = "Command not implemented")]
-    NotImplemented = 502,
+    NotImplemented,
     #[strum(message = "Bad sequence of commands")]
-    BadCommandSequence = 503,
+    BadCommandSequence,
     #[strum(message = "Command not implemented for that parameter")]
-    BadParameter = 504,
+    BadParameter,
     #[strum(message = "Not logged in")]
-    NotLoggedIn = 530,
+    NotLoggedIn,
     #[strum(message = "Need account for storing files")]
-    NeedAccountForStoring = 532,
+    NeedAccountForStoring,
     #[strum(message = "Requested action not taken. File unavailable")]
-    FileUnavailable = 550,
+    FileUnavailable,
     #[strum(message = "Requested action aborted: page type unknown")]
-    PageTypeUnknown = 551,
+    PageTypeUnknown,
     #[strum(message = "Requested file action aborted. Exceeded storage allocation")]
-    ExceededStorageAllocation = 552,
+    ExceededStorageAllocation,
     #[strum(message = "Requested action not taken. File name unknown")]
-    FileNameUnknown = 553
+    FileNameUnknown,
+
+    NoReply
+}
+
+impl Reply {
+    fn status_code(&self) -> u32 {
+        use Reply::*;
+        match self {
+            OpeningDataConnection => 150,
+
+            CommandOk => 200,
+            CommandNotImplemented => 202,
+            // 211
+            DirectoryStatus => 212,
+            //214
+            //215
+            ServiceReady => 220,
+            ServiceClosing => 221,
+            DataConnectionOpen => 225,
+            FileActionSuccessful => 226,
+            EnteringPassiveMode(_) => 227,
+            UserLoggedIn => 230,
+            FileActionOk => 250,
+            Created(_) => 257,
+
+            UsernameOk => 331,
+            //332
+            PendingFurtherInformation => 350,
+
+            ServiceNotAvailable => 421,
+            CantOpenDataConnection => 425,
+            ConnectionClosed => 426,
+            FileActionNotTaken => 450,
+            LocalProcessingError => 451,
+            InsufficientStorageSpace => 452,
+
+            SyntaxError => 500,
+            SyntaxErrorArg => 501,
+            NotImplemented => 502,
+            BadCommandSequence => 503,
+            BadParameter => 504,
+            NotLoggedIn => 530,
+            NeedAccountForStoring => 532,
+            FileUnavailable => 550,
+            PageTypeUnknown => 551,
+            ExceededStorageAllocation => 552,
+            FileNameUnknown => 553,
+
+            NoReply => unreachable!()
+        }
+    }
 }
 
 impl ToString for Reply {
     fn to_string(&self) -> String {
-        format!("{} {}", *self as u32, self.get_message().unwrap())
+        use Reply::*;
+        let response = format!("{} {}", self.status_code(), self.get_message().unwrap());
+        match self {
+            EnteringPassiveMode((ip, port)) => {
+                let h = ip.octets();
+                let p1 = port >> 8;
+                let p2 = port & 0b0000000011111111;
+                response.replace("{}", format!("{},{},{},{},{},{}", h[0], h[1], h[2], h[3], p1, p2).as_str())
+            }
+            Created(pathname) => response.replace("{}", pathname),
+            _ => response
+        }
     }
 }
 
@@ -118,6 +184,7 @@ enum Instruction {
     Noop,
     Retr,
     Pasv,
+
     // Not implemented
 
     Acct,
@@ -212,7 +279,6 @@ impl FromStr for Command {
 pub struct Client {
     pub ip: IpAddr,
     pub data_port: u16,
-    pub server_data_port: u16, //TODO: it probably shouldn't be here
     pub has_quit: bool,
     pub username: String,
     pub password: String,
@@ -230,7 +296,6 @@ impl Client {
         Client {
             ip: addr.ip(),
             data_port: addr.port(),
-            server_data_port: 20,
             has_quit: false,
             username: "anonymous".to_owned(),
             password: "anonymous".to_owned(),
@@ -299,13 +364,8 @@ impl ProtocolInterpreter {
             let args = &command.args;
             for action in Self::dispatch_command(&command) {
                 let reply = action(args, &mut client);
-                if reply == Reply::EnteringPassiveMode {
-                    let p1 = client.server_data_port >> 8;
-                    let p2 = client.server_data_port & 0b0000000011111111;
-                    let addr_info = format!("({},{},{},{},{},{})", 127, 0, 0, 1, p1, p2);
-                    client.send_message(format!("{} {}", reply.to_string(), addr_info).as_str());
-                } else {
-                    client.send_message(reply.to_string().as_str())?;
+                if reply != Reply::NoReply {
+                    client.send_message(reply.to_string().as_str());
                 }
             }
         }
@@ -344,6 +404,7 @@ impl ProtocolInterpreter {
     }
 
     fn parse_port(input: &str) -> Result<SocketAddr> {
+        // TODO: Use some 3rd party map iterator that can fail and generally make this function less gross
         let mut nums = Vec::new();
         for num in input.split(',') {
             let num = match num.parse::<u8>() {
@@ -416,7 +477,7 @@ impl ProtocolInterpreter {
             Err(e) => return e.into()
         };
         match data_type {
-            //TODO: much them both at the same time?
+            //TODO: match them both at the same time?
             DataType::ASCII(_) => {
                 let data_format = match args.get_optional_arg(1) {
                     Ok(data_format) => data_format,
@@ -444,11 +505,15 @@ impl ProtocolInterpreter {
     }
 
     fn pasv(args: &Arguments, client: &mut Client) -> Reply {
-        client.server_data_port = match client.dtp.make_passive() {
-            Ok(port) => port,
+        let addr = match client.dtp.make_passive() {
+            Ok(addr) => addr,
             Err(e) => return e.into()
         };
-        Reply::EnteringPassiveMode
+        let ip = match addr.ip() {
+            IpAddr::V4(ip) => ip,
+            IpAddr::V6(ip) => unreachable!()
+        };
+        Reply::EnteringPassiveMode((ip, addr.port()))
     }
 
     fn retr(args: &Arguments, client: &mut Client) -> Reply {
@@ -464,8 +529,11 @@ impl ProtocolInterpreter {
 
     fn connect_dtp(args: &Arguments, client: &mut Client) -> Reply {
         match client.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
-            Ok(()) => Reply::OpeningDataConnection,
-            Err(e) => e.into()
+            None => NoReply,
+            Some(res) => match res {
+                Ok(()) => Reply::OpeningDataConnection,
+                Err(e) => e.into()
+            }
         }
     }
 }
