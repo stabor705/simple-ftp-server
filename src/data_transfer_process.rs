@@ -1,5 +1,6 @@
+use std::ffi::OsString;
 use std::net::{TcpStream, SocketAddr, TcpListener, Ipv4Addr, IpAddr, ToSocketAddrs};
-use std::fs::{File};
+use std::fs::{DirEntry, File, read_dir};
 use std::path::Path;
 use std::io::{Read, Write, Result, Error, ErrorKind};
 use std::str::FromStr;
@@ -103,8 +104,8 @@ impl DataTransferProcess {
         }
     }
 
-    pub fn send_file(&mut self, path: &str, addr: SocketAddr) -> Result<()> {
-        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
+    pub fn send_file(&mut self, path: &str) -> Result<()> {
+        let mut client = self.get_client()?;
         let path = Path::new(&self.working_dir).join(path);
         let mut file = File::open(path)?;
         loop {
@@ -117,6 +118,27 @@ impl DataTransferProcess {
         Ok(())
     }
 
+    pub fn send_dir_listing(&mut self, path: &str) -> Result<()> {
+        let mut client = self.get_client()?;
+        let path = Path::new(&self.working_dir).join(path);
+        let mut listing: Vec<String> = Vec::new();
+        for entry in read_dir(path)? {
+            match entry {
+                Ok(entry) => listing.push(entry.file_name().to_string_lossy().into_owned()),
+                Err(e) => return Err(e)
+            }
+        }
+        for filename in listing {
+            client.write_all(filename.as_bytes())?;
+            client.write_all("\r\n".as_bytes())?;
+        }
+        self.client = None;
+        Ok(())
+    }
+
+    fn get_client(&self) -> Result<(&TcpStream)> {
+        Ok(self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?)
+    }
 }
 
 trait Mode {

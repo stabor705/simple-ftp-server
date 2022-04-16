@@ -184,6 +184,7 @@ enum Instruction {
     Noop,
     Retr,
     Pasv,
+    Nlst,
 
     // Not implemented
 
@@ -205,7 +206,6 @@ enum Instruction {
     Mkd,
     Pwd,
     List,
-    Nlst,
     Site,
     Syst,
     Stat,
@@ -386,6 +386,7 @@ impl ProtocolInterpreter {
             Instruction::Mode => vec![Self::mode],
             Instruction::Pasv => vec![Self::pasv],
             Instruction::Retr => vec![Self::connect_dtp, Self::retr],
+            Instruction::Nlst => vec![Self::connect_dtp, Self::nlist],
             _ => vec![Self::not_implemented]
         }
     }
@@ -521,7 +522,7 @@ impl ProtocolInterpreter {
             Ok(path) => path,
             Err(e) => return e.into()
         };
-        if let Err(e) = client.dtp.send_file(path.as_str(), SocketAddr::new(client.ip, client.data_port)) {
+        if let Err(e) = client.dtp.send_file(path.as_str()) {
             return e.into();
         }
         Reply::FileActionSuccessful
@@ -534,6 +535,17 @@ impl ProtocolInterpreter {
                 Ok(()) => Reply::OpeningDataConnection,
                 Err(e) => e.into()
             }
+        }
+    }
+
+    fn nlist(args: &Arguments, client: &mut Client) -> Reply {
+        let path: String = match args.get_optional_arg(0) {
+            Ok(path) => path,
+            Err(e) => return e.into()
+        };
+        match client.dtp.send_dir_listing(path.as_str()) {
+            Ok(()) => Reply::DirectoryStatus,
+            Err(e) => e.into()
         }
     }
 }
