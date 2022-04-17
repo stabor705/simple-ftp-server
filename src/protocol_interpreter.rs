@@ -1,5 +1,3 @@
-use std::fmt::format;
-use std::fs::read;
 use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat};
 
 use std::net::{TcpListener, TcpStream, IpAddr, ToSocketAddrs, SocketAddr, Ipv4Addr};
@@ -8,10 +6,11 @@ use std::io;
 use std::time::{Duration};
 use std::str::{FromStr, from_utf8};
 use std::string::ToString;
+use std::collections::HashMap;
+use std::fmt::format;
 
 use strum::EnumMessage;
 use strum_macros::{Display, EnumString, EnumMessage};
-use crate::protocol_interpreter::Reply::NoReply;
 
 //#[derive(PartialEq, Hash, Clone, Copy)]
 #[derive(EnumMessage, PartialEq)]
@@ -86,8 +85,6 @@ enum Reply {
     ExceededStorageAllocation,
     #[strum(message = "Requested action not taken. File name unknown")]
     FileNameUnknown,
-
-    NoReply
 }
 
 impl Reply {
@@ -133,8 +130,6 @@ impl Reply {
             PageTypeUnknown => 551,
             ExceededStorageAllocation => 552,
             FileNameUnknown => 553,
-
-            NoReply => unreachable!()
         }
     }
 }
@@ -169,22 +164,22 @@ impl From<io::Error> for Reply {
     }
 }
 
-#[derive(Display, EnumString, PartialEq, Debug)]
+#[derive(EnumString)]
 #[strum(ascii_case_insensitive)]
-enum Instruction {
+enum Command {
     // Implemented
 
-    User,
-    Pass,
+    User(String),
+    Pass(String),
     Quit,
-    Port,
-    Type,
-    Stru,
-    Mode,
+    Port(u16),
+    Type(DataType),
+    Stru(DataStructure),
+    Mode(TransferMode),
     Noop,
-    Retr,
+    Retr(String),
     Pasv,
-    Nlst,
+    Nlst(Option<String>),
 
     // Not implemented
 
@@ -212,67 +207,81 @@ enum Instruction {
     Help,
 }
 
-struct Command {
-    pub instruction: Instruction,
-    pub args: Arguments
-}
+impl Command {
+    fn parse_line(s: &str) -> Result<Command> {
+        use Command::*;
 
-struct Arguments {
-    args: Vec<String>
-}
-
-impl Arguments {
-    fn get_arg<V>(&self, idx: usize) -> std::result::Result<V, ArgError>
-        where V: FromStr
-    {
-        self.args.get(idx).ok_or(ArgError::ExpectedArgument)?
-            .parse::<V>().map_err(|_| ArgError::BadArgument)
-    }
-
-    fn get_optional_arg<V>(&self, idx: usize) -> std::result::Result<V, ArgError>
-        where V: FromStr + Default
-    {
-        match self.args.get(idx) {
-            Some(arg) => {
-                match arg.parse::<V>() {
-                    Ok(arg) => Ok(arg),
-                    Err(_) => Err(ArgError::BadArgument)
-                }
+        let mut words = s.split(' ');
+        let command = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
+            .parse::<Command>().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+        let command = match command {
+            User(_) => {
+                let username = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?;
+                User(username.to_owned())
             }
-            None => Ok(V::default())
-        }
-    }
-}
-
-enum ArgError {
-    ExpectedArgument,
-    BadArgument
-}
-
-impl From<ArgError> for Reply {
-    fn from(arg_error: ArgError) -> Self {
-        use ArgError::*;
-        match arg_error {
-            ExpectedArgument => Reply::SyntaxErrorArg,
-            BadArgument => Reply::SyntaxErrorArg
-        }
-    }
-}
-
-impl FromStr for Command {
-    type Err = io::Error;
-    fn from_str(string: &str) -> Result<Command> {
-        let (instruction, args) = match string.split_once(' ') {
-            Some((command, args)) => (command, Some(args)),
-            None => (string, None)
+            Pass(_) => {
+                let pass = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?;
+                Pass(pass.to_owned())
+            }
+            Port(_) => {
+                let port: u16 = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
+                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                Port(port)
+            }
+            Type(_) => {
+                let data_type: DataType = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
+                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                let data_type = match data_type {
+                    DataType::ASCII(_) => {
+                        let data_format: DataFormat = match words.next() {
+                            Some(data_format) => {
+                                data_format.parse()
+                                    .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?
+                            }
+                            None => DataFormat::default()
+                        };
+                        DataType::ASCII(data_format)
+                    }
+                    DataType::EBCDIC(_) => {
+                        let data_format: DataFormat = match words.next() {
+                            Some(data_format) => {
+                                data_format.parse()
+                                    .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?
+                            }
+                            None => DataFormat::default()
+                        };
+                        DataType::EBCDIC(data_format)
+                    }
+                    DataType::Image => DataType::Image,
+                    DataType::Local(_) => {
+                        let byte_size: u8 = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
+                            .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                        DataType::Local(byte_size)
+                    }
+                };
+                Type(data_type)
+            }
+            Stru(_) => {
+                let data_structure: DataStructure = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
+                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                Stru(data_structure)
+            }
+            Mode(_) => {
+                let mode: TransferMode = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
+                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                Mode(mode)
+            }
+            Retr(_) => {
+                let path = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?;
+                Pass(path.to_owned())
+            }
+            Nlst(_) => {
+                let path = words.next().and_then(|x| Some(x.to_owned()));
+                Nlst(path)
+            }
+            _ => command
         };
-        let instruction = instruction.parse::<Instruction>()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        let args: Vec<String> = match args {
-            Some(args) => args.split(' ').map(| x | x.to_owned()).collect(),
-            None => Vec::new()
-        };
-        Ok(Command { instruction, args: Arguments { args } })
+        Ok(command)
     }
 }
 
@@ -354,52 +363,38 @@ impl ProtocolInterpreter {
 
         while !client.has_quit  {
             let message = client.read_message()?;
-            let command = match Command::from_str(message.as_str()) {
+            let command = match Command::parse_line(message.as_str()) {
                 Ok(command) => command,
                 Err(_) => {
                     client.send_message(Reply::SyntaxError.to_string().as_str());
                     continue;
                 }
             };
-            let args = &command.args;
-            for action in Self::dispatch_command(&command) {
-                let reply = action(args, &mut client);
-                if reply != Reply::NoReply {
-                    client.send_message(reply.to_string().as_str());
-                }
-            }
+            let reply = Self::dispatch_command(command, &mut client);
+            client.send_message(reply.to_string().as_str());
         }
         log::info!("Connection with client {} properly closed.", client.ip);
         Ok(())
     }
 
-    fn dispatch_command(command: &Command) -> Vec<fn(&Arguments, &mut Client) -> Reply>
+    fn dispatch_command(command: Command, client: &mut Client) -> Reply
     {
-        match command.instruction {
-            Instruction::Quit => vec![Self::quit],
-            Instruction::Noop => vec![Self::noop] ,
-            Instruction::Port => vec![Self::port],
-            Instruction::User => vec![Self::username],
-            Instruction::Pass => vec![Self::password],
-            Instruction::Type => vec![Self::type_],
-            Instruction::Stru => vec![Self::stru],
-            Instruction::Mode => vec![Self::mode],
-            Instruction::Pasv => vec![Self::pasv],
-            Instruction::Retr => vec![Self::connect_dtp, Self::retr],
-            Instruction::Nlst => vec![Self::connect_dtp, Self::nlist],
-            _ => vec![Self::not_implemented]
+        match command {
+            Command::Quit => Self::quit(client),
+            Command::Port(port) => Self::port(client, port),
+            Command::User(username) => Self::username(client, username),
+            Command::Pass(pass) => Self::password(client, pass),
+            Command::Mode(mode) => Self::mode(client, mode),
+            Command::Stru(data_structure) => Self::stru(client, data_structure),
+            Command::Type(data_type) => Self::type_(client, data_type),
+            Command::Pasv => Self::pasv(client),
+            Command::Retr(path) => Self::retr(client, path),
+            Command::Nlst(path) => Self::nlist(client, path),
+            _ => Reply::CommandOk
         }
     }
 
-    fn noop(args: &Arguments, client: &mut Client) -> Reply {
-        Reply::CommandOk
-    }
-
-    fn not_implemented(args: &Arguments, client: &mut Client) -> Reply {
-        Reply::CommandNotImplemented
-    }
-
-    fn quit(args: &Arguments, client: &mut Client) -> Reply {
+    fn quit(client: &mut Client) -> Reply {
         client.has_quit = true;
         Reply::ServiceClosing
     }
@@ -420,132 +415,83 @@ impl ProtocolInterpreter {
         let ip = IpAddr::V4(Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]));
         let port: u16 = ((nums[4] as u16) << 8) + nums[5] as u16;
         Ok(SocketAddr::new(ip, port))
-}
+    }
 
-    fn port(args: &Arguments, client: &mut Client) -> Reply
-    {
-        let input: String = match args.get_arg(0) {
-            Ok(input) => input,
-            Err(e) => return e.into()
-        };
-        let addr = match Self::parse_port(input.as_str()) {
-            Ok(addr) => addr,
-            Err(e) => return e.into()
-        };
-        client.data_port = addr.port();
+    fn port(client: &mut Client, port: u16) -> Reply {
+        client.data_port = port;
         Reply::CommandOk
     }
 
-    fn username(args: &Arguments, client: &mut Client) -> Reply
+    fn username(client: &mut Client, username: String) -> Reply
     {
-        client.username = match args.get_arg(0) {
-            Ok(x) => x,
-            Err(e) => return e.into()
-        };
+        client.username = username;
         Reply::UsernameOk
     }
 
-    fn password(args: &Arguments, client: &mut Client) -> Reply
+    fn password(client: &mut Client, pass: String) -> Reply
     {
-        client.password = match args.get_arg(0) {
-            Ok(x) => x,
-            Err(e) => return e.into()
-        };
+        client.password = pass;
         Reply::UserLoggedIn
     }
 
-    fn mode(args: &Arguments, client: &mut Client) -> Reply
-    {
-        client.dtp.transfer_mode = match args.get_arg(0) {
-            Ok(x) => x,
-            Err(e) => return e.into()
-        };
+    fn mode(client: &mut Client, mode: TransferMode) -> Reply {
+        client.dtp.transfer_mode = mode;
         Reply::CommandOk
     }
 
-    fn stru(args: &Arguments, client: &mut Client) -> Reply
-    {
-        client.dtp.data_structure = match args.get_arg(0) {
-            Ok(x) => x,
-            Err(e) => return e.into()
-        };
+    fn stru(client: &mut Client, data_structure: DataStructure) -> Reply {
+        client.dtp.data_structure = data_structure;
         Reply::CommandOk
     }
 
-    fn type_(args: &Arguments, client: &mut Client) -> Reply {
-        let data_type = match args.get_arg(0) {
-            Ok(data_type) => data_type,
-            Err(e) => return e.into()
-        };
-        match data_type {
-            //TODO: match them both at the same time?
-            DataType::ASCII(_) => {
-                let data_format = match args.get_optional_arg(1) {
-                    Ok(data_format) => data_format,
-                    Err(e) => return e.into()
-                };
-                client.dtp.data_type = DataType::ASCII(data_format);
-            }
-            DataType::EBCDIC(_) => {
-                let data_format = match args.get_optional_arg(1) {
-                    Ok(data_format) => data_format,
-                    Err(e) => return e.into()
-                };
-                client.dtp.data_type = DataType::ASCII(data_format);
-            }
-            DataType::Image => client.dtp.data_type = DataType::Image,
-            DataType::Local(_) => {
-                let byte_size = match args.get_arg(1) {
-                    Ok(byte_size) => byte_size,
-                    Err(e) => return e.into()
-                };
-                client.dtp.data_type = DataType::Local(byte_size);
-            }
-        }
+    fn type_(client: &mut Client, data_type: DataType) -> Reply {
+        client.dtp.data_type = data_type;
         Reply::CommandOk
     }
 
-    fn pasv(args: &Arguments, client: &mut Client) -> Reply {
+    fn pasv(client: &mut Client) -> Reply {
         let addr = match client.dtp.make_passive() {
             Ok(addr) => addr,
             Err(e) => return e.into()
         };
         let ip = match addr.ip() {
             IpAddr::V4(ip) => ip,
-            IpAddr::V6(ip) => unreachable!()
+            IpAddr::V6(ip) => unreachable!() //TODO: it's gross
         };
         Reply::EnteringPassiveMode((ip, addr.port()))
     }
 
-    fn retr(args: &Arguments, client: &mut Client) -> Reply {
-        let path: String = match args.get_arg(0) {
-            Ok(path) => path,
-            Err(e) => return e.into()
-        };
+    fn retr(client: &mut Client, path: String) -> Reply {
+        if let Err(e) = Self::connect_dtp(client) {
+            return e.into();
+        }
         if let Err(e) = client.dtp.send_file(path.as_str()) {
             return e.into();
         }
         Reply::FileActionSuccessful
     }
 
-    fn connect_dtp(args: &Arguments, client: &mut Client) -> Reply {
-        match client.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
-            None => NoReply,
-            Some(res) => match res {
-                Ok(()) => Reply::OpeningDataConnection,
-                Err(e) => e.into()
-            }
+    fn nlist(client: &mut Client, path: Option<String>) -> Reply {
+        if let Err(e) = Self::connect_dtp(client) {
+            return e.into();
+        }
+        match client.dtp.send_dir_listing(path) {
+            Ok(()) => Reply::DirectoryStatus,
+            Err(e) => e.into()
         }
     }
 
-    fn nlist(args: &Arguments, client: &mut Client) -> Reply {
-        let path: String = match args.get_optional_arg(0) {
-            Ok(path) => path,
-            Err(e) => return e.into()
-        };
-        match client.dtp.send_dir_listing(path.as_str()) {
-            Ok(()) => Reply::DirectoryStatus,
-            Err(e) => e.into()
+    fn connect_dtp(client: &mut Client) -> Result<()> {
+        if let Some(res) = client.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
+            match res {
+                Ok(_) => {
+                    client.send_message(Reply::OpeningDataConnection.to_string().as_str())?;
+                    Ok(())
+                }
+                Err(e) => Err(e)
+            }
+        } else {
+            Ok(())
         }
     }
 }
@@ -564,7 +510,7 @@ mod tests {
     #[test]
     fn test_command_from_string() {
         let command = Command::from_str("QuIt zabilem grubasa").unwrap();
-        assert_eq!(command.command, Instruction::QUIT);
+        assert_eq!(command.command, Command::QUIT);
         assert_eq!(command.arg.unwrap(), "zabilem grubasa");
 
         let command = Command::from_str("");

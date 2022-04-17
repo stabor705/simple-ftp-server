@@ -22,6 +22,12 @@ pub enum DataType {
     Local(u8)
 }
 
+impl Default for DataType {
+    fn default() -> Self {
+        DataType::ASCII(DataFormat::default())
+    }
+}
+
 #[derive(Display, EnumString)]
 pub enum DataFormat {
     #[strum(serialize="N")]
@@ -48,6 +54,12 @@ pub enum DataStructure {
     PageStructure
 }
 
+impl Default for DataStructure {
+    fn default() -> Self {
+        DataStructure::FileStructure
+    }
+}
+
 #[derive(Display, EnumString)]
 pub enum TransferMode {
     #[strum(serialize="S")]
@@ -56,6 +68,12 @@ pub enum TransferMode {
     Block,
     #[strum(serialize="C")]
     Compressed
+}
+
+impl Default for TransferMode {
+    fn default() -> Self {
+       TransferMode::Stream
+    }
 }
 
 pub struct DataTransferProcess {
@@ -118,11 +136,14 @@ impl DataTransferProcess {
         Ok(())
     }
 
-    pub fn send_dir_listing(&mut self, path: &str) -> Result<()> {
+    pub fn send_dir_listing(&mut self, path: Option<String>) -> Result<()> {
         let mut client = self.get_client()?;
-        let path = Path::new(&self.working_dir).join(path);
+        let dir = match path {
+            Some(path) => Path::new(&self.working_dir).join(path),
+            None => Path::new(&self.working_dir).to_path_buf()
+        };
         let mut listing: Vec<String> = Vec::new();
-        for entry in read_dir(path)? {
+        for entry in read_dir(dir)? {
             match entry {
                 Ok(entry) => listing.push(entry.file_name().to_string_lossy().into_owned()),
                 Err(e) => return Err(e)
