@@ -1,16 +1,18 @@
 use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat};
 
 use std::net::{TcpListener, TcpStream, IpAddr, ToSocketAddrs, SocketAddr, Ipv4Addr};
-use std::io::{Result, Write, Read, Error, ErrorKind};
-use std::io;
+use std::io::{Write, Read};
 use std::time::{Duration};
 use std::str::{FromStr, from_utf8};
 use std::string::ToString;
 use std::collections::HashMap;
-use std::fmt::format;
+use std::fmt::{Debug, Display, format, Formatter};
 
 use strum::EnumMessage;
 use strum_macros::{Display, EnumString, EnumMessage};
+use fallible_iterator::FallibleIterator;
+use anyhow::{Result, Error};
+use crate::protocol_interpreter::Command::Pass;
 
 //#[derive(PartialEq, Hash, Clone, Copy)]
 #[derive(EnumMessage, PartialEq)]
@@ -151,15 +153,22 @@ impl ToString for Reply {
     }
 }
 
-impl From<io::Error> for Reply {
+impl From<Error> for Reply {
     fn from(e: Error) -> Self {
-        use io::ErrorKind::*;
         use Reply::*;
-        log::error!("Error {}", e);
-
-        match e.kind() {
-            ConnectionRefused => CantOpenDataConnection,
-            _ => LocalProcessingError
+        if e.is::<ArgError>() {
+            Reply::SyntaxErrorArg
+        } else if e.is::<std::io::Error>() {
+            let error: std::io::Error = e.downcast().unwrap();
+            match error {
+                _ => {
+                    log::error!("Encountered unexpected io error {}", error);
+                    Reply::LocalProcessingError
+                }
+            }
+        } else {
+            log::error!("Encountered unexpected error {}", e);
+            Reply::LocalProcessingError
         }
     }
 }
@@ -172,7 +181,7 @@ enum Command {
     User(String),
     Pass(String),
     Quit,
-    Port(u16),
+    Port(([u8; 4], u16)),
     Type(DataType),
     Stru(DataStructure),
     Mode(TransferMode),
@@ -207,36 +216,61 @@ enum Command {
     Help,
 }
 
+#[derive(Debug)]
+enum ArgError {
+    ArgMissing,
+    BadArg
+}
+
+impl Display for ArgError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use ArgError::*;
+
+        match *self {
+            ArgMissing => write!(f, "missing required argument"),
+            BadArg => write!(f, "invalid format of provided argument")
+        }
+    }
+}
+
+impl std::error::Error for ArgError {}
+
 impl Command {
     fn parse_line(s: &str) -> Result<Command> {
         use Command::*;
 
         let mut words = s.split(' ');
-        let command = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
-            .parse::<Command>().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+        let command = words.next().ok_or(ArgError::ArgMissing)?
+            .parse::<Command>()?;
         let command = match command {
             User(_) => {
-                let username = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?;
+                let username = words.next().ok_or(ArgError::ArgMissing)?;
                 User(username.to_owned())
             }
             Pass(_) => {
-                let pass = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?;
+                let pass = words.next().ok_or(ArgError::ArgMissing)?;
                 Pass(pass.to_owned())
             }
             Port(_) => {
-                let port: u16 = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
-                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
-                Port(port)
+                let b: Vec<u8> = fallible_iterator::convert(
+                    s.split(',').map(|c| c.parse::<u8>())
+                ).collect()?;
+                if b.len() < 6 {
+                    return Err(Error::new(ArgError::BadArg));
+                }
+                let mut ip: [u8; 4] = [0; 4];
+                ip.clone_from_slice(&b[0..4]);
+                let port = ((b[4] as u16) << 8) + b[5] as u16;
+                Port((ip, port))
             }
             Type(_) => {
-                let data_type: DataType = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
-                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                let data_type: DataType = words.next().ok_or(ArgError::ArgMissing)?
+                    .parse()?;
                 let data_type = match data_type {
                     DataType::ASCII(_) => {
                         let data_format: DataFormat = match words.next() {
                             Some(data_format) => {
-                                data_format.parse()
-                                    .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?
+                                data_format.parse()?
                             }
                             None => DataFormat::default()
                         };
@@ -245,8 +279,7 @@ impl Command {
                     DataType::EBCDIC(_) => {
                         let data_format: DataFormat = match words.next() {
                             Some(data_format) => {
-                                data_format.parse()
-                                    .map_err(|e| Error::new(ErrorKind::InvalidInput, e))?
+                                data_format.parse()?
                             }
                             None => DataFormat::default()
                         };
@@ -254,25 +287,25 @@ impl Command {
                     }
                     DataType::Image => DataType::Image,
                     DataType::Local(_) => {
-                        let byte_size: u8 = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
-                            .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                        let byte_size: u8 = words.next().ok_or(ArgError::ArgMissing)?
+                            .parse()?;
                         DataType::Local(byte_size)
                     }
                 };
                 Type(data_type)
             }
             Stru(_) => {
-                let data_structure: DataStructure = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
-                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                let data_structure: DataStructure = words.next().ok_or(ArgError::ArgMissing)?
+                    .parse()?;
                 Stru(data_structure)
             }
             Mode(_) => {
-                let mode: TransferMode = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?
-                    .parse().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
+                let mode: TransferMode = words.next().ok_or(ArgError::ArgMissing)?
+                    .parse()?;
                 Mode(mode)
             }
             Retr(_) => {
-                let path = words.next().ok_or(Error::from(ErrorKind::InvalidInput))?;
+                let path = words.next().ok_or(ArgError::ArgMissing)?;
                 Pass(path.to_owned())
             }
             Nlst(_) => {
@@ -329,10 +362,10 @@ impl Client {
             let mut buf = [0 as u8; 256];
             let n = self.stream.read(&mut buf)?;
             if n == 0 {
-                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "Client shut connection"));
+                return Err(Error::msg("Client shut connection"));
             }
-            let new_text = from_utf8(&buf[0..n])
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            //TODO: I don't think that I want to use utf8 here
+            let new_text = from_utf8(&buf[0..n])?;
             match new_text.find(CRLF) {
                 None => message.push_str(new_text),
                 Some(pos) => {
@@ -370,18 +403,24 @@ impl ProtocolInterpreter {
                     continue;
                 }
             };
-            let reply = Self::dispatch_command(command, &mut client);
+            let reply = match Self::dispatch_command(command, &mut client) {
+                Ok(reply) => reply,
+                Err(e) => {
+                    log::error!("{}", e);
+                    e.into()
+                }
+            };
             client.send_message(reply.to_string().as_str());
         }
         log::info!("Connection with client {} properly closed.", client.ip);
         Ok(())
     }
 
-    fn dispatch_command(command: Command, client: &mut Client) -> Reply
+    fn dispatch_command(command: Command, client: &mut Client) -> Result<Reply>
     {
         match command {
             Command::Quit => Self::quit(client),
-            Command::Port(port) => Self::port(client, port),
+            Command::Port(host_port) => Self::port(client, host_port),
             Command::User(username) => Self::username(client, username),
             Command::Pass(pass) => Self::password(client, pass),
             Command::Mode(mode) => Self::mode(client, mode),
@@ -390,95 +429,66 @@ impl ProtocolInterpreter {
             Command::Pasv => Self::pasv(client),
             Command::Retr(path) => Self::retr(client, path),
             Command::Nlst(path) => Self::nlist(client, path),
-            _ => Reply::CommandOk
+            _ => Ok(Reply::CommandOk)
         }
     }
 
-    fn quit(client: &mut Client) -> Reply {
+    fn quit(client: &mut Client) -> Result<Reply> {
         client.has_quit = true;
-        Reply::ServiceClosing
+        Ok(Reply::ServiceClosing)
     }
 
-    fn parse_port(input: &str) -> Result<SocketAddr> {
-        // TODO: Use some 3rd party map iterator that can fail and generally make this function less gross
-        let mut nums = Vec::new();
-        for num in input.split(',') {
-            let num = match num.parse::<u8>() {
-                Ok(num) => num,
-                Err(e) => return Err(Error::new(ErrorKind::InvalidInput, e))
-            };
-            nums.push(num);
-        }
-        if nums.len() != 6 {
-            return Err(Error::from(ErrorKind::InvalidInput));
-        }
-        let ip = IpAddr::V4(Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]));
-        let port: u16 = ((nums[4] as u16) << 8) + nums[5] as u16;
-        Ok(SocketAddr::new(ip, port))
+    fn port(client: &mut Client, host_port: ([u8; 4], u16)) -> Result<Reply> {
+        client.data_port = host_port.1;
+        Ok(Reply::CommandOk)
     }
 
-    fn port(client: &mut Client, port: u16) -> Reply {
-        client.data_port = port;
-        Reply::CommandOk
-    }
-
-    fn username(client: &mut Client, username: String) -> Reply
+    fn username(client: &mut Client, username: String) -> Result<Reply>
     {
         client.username = username;
-        Reply::UsernameOk
+        Ok(Reply::UsernameOk)
     }
 
-    fn password(client: &mut Client, pass: String) -> Reply
+    fn password(client: &mut Client, pass: String) -> Result<Reply>
     {
         client.password = pass;
-        Reply::UserLoggedIn
+        Ok(Reply::UserLoggedIn)
     }
 
-    fn mode(client: &mut Client, mode: TransferMode) -> Reply {
+    fn mode(client: &mut Client, mode: TransferMode) -> Result<Reply> {
         client.dtp.transfer_mode = mode;
-        Reply::CommandOk
+        Ok(Reply::CommandOk)
     }
 
-    fn stru(client: &mut Client, data_structure: DataStructure) -> Reply {
+    fn stru(client: &mut Client, data_structure: DataStructure) -> Result<Reply> {
         client.dtp.data_structure = data_structure;
-        Reply::CommandOk
+        Ok(Reply::CommandOk)
     }
 
-    fn type_(client: &mut Client, data_type: DataType) -> Reply {
+    fn type_(client: &mut Client, data_type: DataType) -> Result<Reply> {
         client.dtp.data_type = data_type;
-        Reply::CommandOk
+        Ok(Reply::CommandOk)
     }
 
-    fn pasv(client: &mut Client) -> Reply {
-        let addr = match client.dtp.make_passive() {
-            Ok(addr) => addr,
-            Err(e) => return e.into()
-        };
+    fn pasv(client: &mut Client) -> Result<Reply> {
+        let addr = client.dtp.make_passive()?;
         let ip = match addr.ip() {
             IpAddr::V4(ip) => ip,
             IpAddr::V6(ip) => unreachable!() //TODO: it's gross
         };
-        Reply::EnteringPassiveMode((ip, addr.port()))
+        Ok(Reply::EnteringPassiveMode((ip, addr.port())))
     }
 
-    fn retr(client: &mut Client, path: String) -> Reply {
-        if let Err(e) = Self::connect_dtp(client) {
-            return e.into();
-        }
-        if let Err(e) = client.dtp.send_file(path.as_str()) {
-            return e.into();
-        }
-        Reply::FileActionSuccessful
+    fn retr(client: &mut Client, path: String) -> Result<Reply> {
+        Self::connect_dtp(client)?;
+        client.dtp.send_file(path.as_str())?;
+        Ok(Reply::FileActionSuccessful)
     }
 
-    fn nlist(client: &mut Client, path: Option<String>) -> Reply {
-        if let Err(e) = Self::connect_dtp(client) {
-            return e.into();
-        }
-        match client.dtp.send_dir_listing(path) {
-            Ok(()) => Reply::DirectoryStatus,
-            Err(e) => e.into()
-        }
+    fn nlist(client: &mut Client, path: Option<String>) -> Result<Reply> {
+        Self::connect_dtp(client)?;
+        client.dtp.send_dir_listing(path)?;
+        Ok(Reply::DirectoryStatus)
     }
 
     fn connect_dtp(client: &mut Client) -> Result<()> {
@@ -488,7 +498,7 @@ impl ProtocolInterpreter {
                     client.send_message(Reply::OpeningDataConnection.to_string().as_str())?;
                     Ok(())
                 }
-                Err(e) => Err(e)
+                Err(e) => Err(Error::new(e))
             }
         } else {
             Ok(())

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use std::thread::sleep;
 
 use strum_macros::{Display, EnumString};
-use crate::data_transfer_process::TransferMode::Stream;
+use fallible_iterator::FallibleIterator;
 
 #[derive(Display, EnumString)]
 pub enum DataType {
@@ -123,7 +123,7 @@ impl DataTransferProcess {
     }
 
     pub fn send_file(&mut self, path: &str) -> Result<()> {
-        let mut client = self.get_client()?;
+        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = Path::new(&self.working_dir).join(path);
         let mut file = File::open(path)?;
         loop {
@@ -137,18 +137,8 @@ impl DataTransferProcess {
     }
 
     pub fn send_dir_listing(&mut self, path: Option<String>) -> Result<()> {
-        let mut client = self.get_client()?;
-        let dir = match path {
-            Some(path) => Path::new(&self.working_dir).join(path),
-            None => Path::new(&self.working_dir).to_path_buf()
-        };
-        let mut listing: Vec<String> = Vec::new();
-        for entry in read_dir(dir)? {
-            match entry {
-                Ok(entry) => listing.push(entry.file_name().to_string_lossy().into_owned()),
-                Err(e) => return Err(e)
-            }
-        }
+        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
+        let listing = self.get_dir_listing(path)?;
         for filename in listing {
             client.write_all(filename.as_bytes())?;
             client.write_all("\r\n".as_bytes())?;
@@ -157,8 +147,20 @@ impl DataTransferProcess {
         Ok(())
     }
 
-    fn get_client(&self) -> Result<(&TcpStream)> {
-        Ok(self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?)
+    fn get_dir_listing(&self, path: Option<String>) -> Result<Vec<String>> {
+        let dir = match path {
+            Some(path) => Path::new(&self.working_dir).join(path),
+            None => Path::new(&self.working_dir).to_path_buf()
+        };
+        let listing = fallible_iterator::convert(read_dir(dir)?)
+            .map(|lol| Ok(lol.file_name().to_string_lossy().into_owned())).collect()?;
+        // for entry in read_dir(dir)? {
+        //     match entry {
+        //         Ok(entry) => listing.push(entry.file_name().to_string_lossy().into_owned()),
+        //         Err(e) => return Err(e)
+        //     }
+        // }
+        Ok(listing)
     }
 }
 
