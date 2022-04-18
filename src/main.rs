@@ -6,7 +6,6 @@ mod ftpserver;
 use simplelog::*;
 
 use std::fs::File;
-use crate::data_transfer_process::DataTransferProcess;
 use crate::ftpserver::FtpServer;
 
 fn main() {

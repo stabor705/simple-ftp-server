@@ -1,9 +1,7 @@
-use std::ffi::OsString;
-use std::net::{TcpStream, SocketAddr, TcpListener, Ipv4Addr, IpAddr, ToSocketAddrs};
-use std::fs::{DirEntry, File, read_dir};
+use std::net::{TcpStream, SocketAddr, TcpListener, Ipv4Addr};
+use std::fs::{File, read_dir};
 use std::path::Path;
 use std::io::{Read, Write, Result, Error, ErrorKind};
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 use std::thread::sleep;
 
@@ -131,7 +129,7 @@ impl DataTransferProcess {
             let mut buf = [0; 512];
             let n = file.read(&mut buf)?;
             if n == 0 { break; }
-            client.write_all(&buf[0..n]);
+            client.write_all(&buf[0..n])?;
         }
         Ok(())
     }

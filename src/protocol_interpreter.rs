@@ -1,20 +1,18 @@
 use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat};
 
-use std::net::{TcpListener, TcpStream, IpAddr, ToSocketAddrs, SocketAddr, Ipv4Addr};
+use std::net::{TcpStream, IpAddr, SocketAddr, Ipv4Addr};
 use std::io::{Write, Read};
 use std::time::{Duration};
-use std::str::{FromStr, from_utf8};
+use std::str::from_utf8;
 use std::string::ToString;
-use std::collections::HashMap;
-use std::fmt::{Debug, Display, format, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use strum::EnumMessage;
-use strum_macros::{Display, EnumString, EnumMessage};
+use strum_macros::{EnumString, EnumMessage};
 use fallible_iterator::FallibleIterator;
 use anyhow::{Result, Error};
-use crate::protocol_interpreter::Command::Pass;
 
-//#[derive(PartialEq, Hash, Clone, Copy)]
+#[allow(dead_code)]
 #[derive(EnumMessage, PartialEq)]
 enum Reply {
     #[strum(message = "Opening data connection")]
@@ -156,19 +154,20 @@ impl ToString for Reply {
 impl From<Error> for Reply {
     fn from(e: Error) -> Self {
         use Reply::*;
+
         if e.is::<ArgError>() {
-            Reply::SyntaxErrorArg
+            SyntaxErrorArg
         } else if e.is::<std::io::Error>() {
             let error: std::io::Error = e.downcast().unwrap();
             match error {
                 _ => {
                     log::error!("Encountered unexpected io error {}", error);
-                    Reply::LocalProcessingError
+                    LocalProcessingError
                 }
             }
         } else {
             log::error!("Encountered unexpected error {}", e);
-            Reply::LocalProcessingError
+            LocalProcessingError
         }
     }
 }
@@ -388,7 +387,7 @@ pub struct ProtocolInterpreter {}
 const CRLF: &'static str = "\r\n";
 
 impl ProtocolInterpreter {
-    pub fn handle_client(&self, mut stream: TcpStream) -> Result<()> {
+    pub fn handle_client(&self, stream: TcpStream) -> Result<()> {
         //TODO: Get rid of this unwrap
         let mut client = Client::new(stream);
         log::info!("Got a new connection from {}", client.ip);
@@ -399,7 +398,7 @@ impl ProtocolInterpreter {
             let command = match Command::parse_line(message.as_str()) {
                 Ok(command) => command,
                 Err(_) => {
-                    client.send_message(Reply::SyntaxError.to_string().as_str());
+                    client.send_message(Reply::SyntaxError.to_string().as_str())?;
                     continue;
                 }
             };
@@ -410,7 +409,7 @@ impl ProtocolInterpreter {
                     e.into()
                 }
             };
-            client.send_message(reply.to_string().as_str());
+            client.send_message(reply.to_string().as_str())?;
         }
         log::info!("Connection with client {} properly closed.", client.ip);
         Ok(())
