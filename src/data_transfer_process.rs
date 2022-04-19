@@ -131,6 +131,22 @@ impl DataTransferProcess {
             if n == 0 { break; }
             client.write_all(&buf[0..n])?;
         }
+        self.client = None;
+        Ok(())
+    }
+
+    pub fn receive_file(&mut self, path: &str) -> Result<()> {
+        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
+        let path = Path::new(&self.working_dir).join(path);
+        let mut file = File::create(path)?;
+        loop {
+            //TODO: How big should it be?
+            let mut buf = [0; 512];
+            let n = client.read(&mut buf)?;
+            if n == 0 { break; }
+            file.write_all(&buf[0..n])?;
+        }
+        self.client = None;
         Ok(())
     }
 
@@ -218,17 +234,5 @@ impl Mode for Passive {
             }
         }
         Err(Error::from(ErrorKind::TimedOut))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_serializing_parameters() {
-        let data_type = "A N".parse::<DataType>()?;
-        assert_eq!(data_type.data_type, DataType::ASCII);
-        assert_eq!(data_type.data_format, DataFormat::NonPrint);
     }
 }

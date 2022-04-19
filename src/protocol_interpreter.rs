@@ -14,7 +14,7 @@ use anyhow::{Result, Error};
 
 #[allow(dead_code)]
 #[derive(EnumMessage, PartialEq)]
-enum Reply {
+pub enum Reply {
     #[strum(message = "Opening data connection")]
     OpeningDataConnection,
 
@@ -188,6 +188,7 @@ enum Command {
     Retr(String),
     Pasv,
     Nlst(Option<String>),
+    Stor(String),
 
     // Not implemented
 
@@ -196,7 +197,6 @@ enum Command {
     Cdup,
     Smnt,
     Rein,
-    Stor,
     Stou,
     Appe,
     Allo,
@@ -307,6 +307,10 @@ impl Command {
                 let path = words.next().ok_or(ArgError::ArgMissing)?;
                 Pass(path.to_owned())
             }
+            Stor(_) => {
+                let path = words.next().ok_or(ArgError::ArgMissing)?;
+                Stor(path.to_owned())
+            }
             Nlst(_) => {
                 let path = words.next().and_then(|x| Some(x.to_owned()));
                 Nlst(path)
@@ -329,7 +333,7 @@ pub struct Client {
 }
 
 impl Client {
-    fn new(stream: TcpStream) -> Client {
+    pub fn new(stream: TcpStream) -> Client {
         let addr = stream.peer_addr().unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
         stream.set_write_timeout(Some(Duration::from_secs(60))).unwrap();
@@ -346,14 +350,14 @@ impl Client {
         }
     }
 
-    fn send_message(&mut self, msg: &str) -> Result<()> {
+    pub fn send_message(&mut self, msg: &str) -> Result<()> {
         log::debug!("----> {}", msg);
         self.stream.write_all(msg.as_bytes())?;
         self.stream.write_all(CRLF.as_bytes())?;
         Ok(())
     }
 
-    fn read_message(&mut self) -> Result<String> {
+    pub fn read_message(&mut self) -> Result<String> {
         //TODO: is it a right way to do it?
         //TODO: max message len
         let mut message = String::new();
@@ -405,7 +409,7 @@ impl ProtocolInterpreter {
             let reply = match Self::dispatch_command(command, &mut client) {
                 Ok(reply) => reply,
                 Err(e) => {
-                    log::error!("{}", e);
+                    log::warn!("{}", e);
                     e.into()
                 }
             };
@@ -428,6 +432,7 @@ impl ProtocolInterpreter {
             Command::Pasv => Self::pasv(client),
             Command::Retr(path) => Self::retr(client, path),
             Command::Nlst(path) => Self::nlist(client, path),
+            Command::Stor(path) => Self::stor(client, path),
             _ => Ok(Reply::CommandOk)
         }
     }
@@ -484,6 +489,12 @@ impl ProtocolInterpreter {
         Ok(Reply::FileActionSuccessful)
     }
 
+    fn stor(client: &mut Client, path: String) -> Result<Reply> {
+        Self::connect_dtp(client)?;
+        client.dtp.receive_file(path.as_str());
+        Ok(Reply::FileActionSuccessful)
+    }
+
     fn nlist(client: &mut Client, path: Option<String>) -> Result<Reply> {
         Self::connect_dtp(client)?;
         client.dtp.send_dir_listing(path)?;
@@ -505,38 +516,18 @@ impl ProtocolInterpreter {
     }
 }
 
+#[allow(unused_imports)] // For some reason compiler thinks super::* is not use
 #[cfg(test)]
 mod tests {
-    use crate::protocol_interpreter::Reply::CommandOk;
     use super::*;
 
     #[test]
-    fn test_reply_string() {
-        let reply = Reply::ServiceReady;
-        assert_eq!(reply.to_string(), "220 Service ready");
-    }
-
-    #[test]
-    fn test_command_from_string() {
-        let command = Command::from_str("QuIt zabilem grubasa").unwrap();
-        assert_eq!(command.command, Command::QUIT);
-        assert_eq!(command.arg.unwrap(), "zabilem grubasa");
-
-        let command = Command::from_str("");
-        assert!(command.is_err());
-
-        let command = Command::from_str("dupa kupa");
-        assert!(command.is_err());
-
-        let command = Command::from_str("LITWO ojczyzno moja ty jestes");
-        assert!(command.is_err());
-
-        let command = Command::from_str("QUIT");
-        assert!(command.is_ok());
-    }
-
-    #[test]
-    fn mode_from_arg() {
-        let mode = "S".parse::<TransferMode>().unwrap();
+    fn test_reply_creation() {
+        let reply = Reply::CommandOk;
+        assert_eq!(reply.to_string(), "200 Command okay");
+        let reply = Reply::EnteringPassiveMode((Ipv4Addr::new(127, 0, 0, 1), 8888));
+        assert_eq!(reply.to_string(), "227 Entering passive mode (127,0,0,1,34,184)");
+        let reply = Reply::Created("very-important-directory".to_owned());
+        assert_eq!(reply.to_string(), "257 \"very-important-directory\" created")
     }
 }

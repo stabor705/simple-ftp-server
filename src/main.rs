@@ -1,14 +1,15 @@
-mod server;
 mod protocol_interpreter;
 mod data_transfer_process;
 mod ftpserver;
+mod test;
 
 use simplelog::*;
+use anyhow::Result;
 
 use std::fs::File;
 use crate::ftpserver::FtpServer;
 
-fn main() {
+fn main() -> Result<()> {
     CombinedLogger::init(
         vec![
             TermLogger::new(LevelFilter::Warn, Config::default(),
@@ -18,5 +19,7 @@ fn main() {
 
         ]
     ).unwrap();
-    FtpServer::run("127.0.0.1:2137");
+    let ftp = FtpServer::new("127.0.0.1:2137")?;
+    ftp.run();
+    Ok(())
 }
