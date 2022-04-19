@@ -74,13 +74,17 @@ impl Default for TransferMode {
     }
 }
 
+#[derive(Default)]
+pub struct DataRepr {
+    pub data_type: DataType,
+    pub data_structure: DataStructure,
+    pub transfer_mode: TransferMode
+}
+
 pub struct DataTransferProcess {
     working_dir: String,
     mode: Box<dyn Mode>,
     client: Option<TcpStream>,
-    pub data_type: DataType,
-    pub data_structure: DataStructure,
-    pub transfer_mode: TransferMode
 }
 
 impl DataTransferProcess {
@@ -89,9 +93,6 @@ impl DataTransferProcess {
             working_dir: root,
             mode: Box::new(Active {}),
             client: None,
-            data_type: DataType::ASCII(DataFormat::NonPrint),
-            data_structure: DataStructure::FileStructure,
-            transfer_mode: TransferMode::Stream
         }
     }
 
@@ -167,13 +168,7 @@ impl DataTransferProcess {
             None => Path::new(&self.working_dir).to_path_buf()
         };
         let listing = fallible_iterator::convert(read_dir(dir)?)
-            .map(|lol| Ok(lol.file_name().to_string_lossy().into_owned())).collect()?;
-        // for entry in read_dir(dir)? {
-        //     match entry {
-        //         Ok(entry) => listing.push(entry.file_name().to_string_lossy().into_owned()),
-        //         Err(e) => return Err(e)
-        //     }
-        // }
+            .map(|entry| Ok(entry.file_name().to_string_lossy().into_owned())).collect()?;
         Ok(listing)
     }
 }

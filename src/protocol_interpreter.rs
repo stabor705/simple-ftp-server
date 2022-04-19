@@ -1,4 +1,4 @@
-use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat};
+use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat, DataRepr};
 
 use std::net::{TcpStream, IpAddr, SocketAddr, Ipv4Addr};
 use std::io::{Write, Read};
@@ -327,7 +327,7 @@ pub struct Client {
     pub has_quit: bool,
     pub username: String,
     pub password: String,
-    pub dtp: DataTransferProcess,
+    pub data_repr: DataRepr,
 
     stream: TcpStream
 }
@@ -344,7 +344,7 @@ impl Client {
             has_quit: false,
             username: "anonymous".to_owned(),
             password: "anonymous".to_owned(),
-            dtp: DataTransferProcess::new(".".to_owned()),
+            data_repr: DataRepr::default(),
 
             stream
         }
@@ -386,12 +386,18 @@ impl Client {
 
 }
 
-pub struct ProtocolInterpreter {}
+pub struct ProtocolInterpreter<'a> {
+    dtp: &'a mut DataTransferProcess
+}
 
 const CRLF: &'static str = "\r\n";
 
-impl ProtocolInterpreter {
-    pub fn handle_client(&self, stream: TcpStream) -> Result<()> {
+impl<'a> ProtocolInterpreter<'a> {
+    pub fn new(dtp: &mut DataTransferProcess) -> ProtocolInterpreter {
+        ProtocolInterpreter { dtp }
+    }
+
+    pub fn handle_client(&mut self, stream: TcpStream) -> Result<()> {
         //TODO: Get rid of this unwrap
         let mut client = Client::new(stream);
         log::info!("Got a new connection from {}", client.ip);
@@ -406,7 +412,7 @@ impl ProtocolInterpreter {
                     continue;
                 }
             };
-            let reply = match Self::dispatch_command(command, &mut client) {
+            let reply = match self.dispatch_command(command, &mut client) {
                 Ok(reply) => reply,
                 Err(e) => {
                     log::warn!("{}", e);
@@ -419,7 +425,7 @@ impl ProtocolInterpreter {
         Ok(())
     }
 
-    fn dispatch_command(command: Command, client: &mut Client) -> Result<Reply>
+    fn dispatch_command(&mut self, command: Command, client: &mut Client) -> Result<Reply>
     {
         match command {
             Command::Quit => Self::quit(client),
@@ -429,10 +435,10 @@ impl ProtocolInterpreter {
             Command::Mode(mode) => Self::mode(client, mode),
             Command::Stru(data_structure) => Self::stru(client, data_structure),
             Command::Type(data_type) => Self::type_(client, data_type),
-            Command::Pasv => Self::pasv(client),
-            Command::Retr(path) => Self::retr(client, path),
-            Command::Nlst(path) => Self::nlist(client, path),
-            Command::Stor(path) => Self::stor(client, path),
+            Command::Pasv => self.pasv(client),
+            Command::Retr(path) => self.retr(client, path),
+            Command::Nlst(path) => self.nlist(client, path),
+            Command::Stor(path) => self.stor(client, path),
             _ => Ok(Reply::CommandOk)
         }
     }
@@ -460,22 +466,22 @@ impl ProtocolInterpreter {
     }
 
     fn mode(client: &mut Client, mode: TransferMode) -> Result<Reply> {
-        client.dtp.transfer_mode = mode;
+        client.data_repr.transfer_mode = mode;
         Ok(Reply::CommandOk)
     }
 
     fn stru(client: &mut Client, data_structure: DataStructure) -> Result<Reply> {
-        client.dtp.data_structure = data_structure;
+        client.data_repr.data_structure = data_structure;
         Ok(Reply::CommandOk)
     }
 
     fn type_(client: &mut Client, data_type: DataType) -> Result<Reply> {
-        client.dtp.data_type = data_type;
+        client.data_repr.data_type = data_type;
         Ok(Reply::CommandOk)
     }
 
-    fn pasv(client: &mut Client) -> Result<Reply> {
-        let addr = client.dtp.make_passive()?;
+    fn pasv(&mut self, client: &mut Client) -> Result<Reply> {
+        let addr = self.dtp.make_passive()?;
         let ip = match addr.ip() {
             IpAddr::V4(ip) => ip,
             IpAddr::V6(ip) => unreachable!() //TODO: it's gross
@@ -483,26 +489,26 @@ impl ProtocolInterpreter {
         Ok(Reply::EnteringPassiveMode((ip, addr.port())))
     }
 
-    fn retr(client: &mut Client, path: String) -> Result<Reply> {
-        Self::connect_dtp(client)?;
-        client.dtp.send_file(path.as_str())?;
+    fn retr(&mut self, client: &mut Client, path: String) -> Result<Reply> {
+        self.connect_dtp(client)?;
+        self.dtp.send_file(path.as_str())?;
         Ok(Reply::FileActionSuccessful)
     }
 
-    fn stor(client: &mut Client, path: String) -> Result<Reply> {
-        Self::connect_dtp(client)?;
-        client.dtp.receive_file(path.as_str());
+    fn stor(&mut self, client: &mut Client, path: String) -> Result<Reply> {
+        self.connect_dtp(client)?;
+        self.dtp.receive_file(path.as_str());
         Ok(Reply::FileActionSuccessful)
     }
 
-    fn nlist(client: &mut Client, path: Option<String>) -> Result<Reply> {
-        Self::connect_dtp(client)?;
-        client.dtp.send_dir_listing(path)?;
+    fn nlist(&mut self, client: &mut Client, path: Option<String>) -> Result<Reply> {
+        self.connect_dtp(client)?;
+        self.dtp.send_dir_listing(path)?;
         Ok(Reply::DirectoryStatus)
     }
 
-    fn connect_dtp(client: &mut Client) -> Result<()> {
-        if let Some(res) = client.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
+    fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {
+        if let Some(res) = self.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
             match res {
                 Ok(_) => {
                     client.send_message(Reply::OpeningDataConnection.to_string().as_str())?;

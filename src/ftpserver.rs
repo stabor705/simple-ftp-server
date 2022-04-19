@@ -3,6 +3,7 @@ use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use crate::protocol_interpreter::ProtocolInterpreter;
 
 use anyhow::Result;
+use crate::data_transfer_process::DataTransferProcess;
 
 pub struct FtpServer {
     listener: TcpListener
@@ -20,7 +21,8 @@ impl FtpServer {
     }
 
     pub fn run(&self) -> Result<()> {
-        let pi = ProtocolInterpreter {};
+        let mut dtp = DataTransferProcess::new(".".to_owned());
+        let mut pi = ProtocolInterpreter::new(&mut dtp);
         for client in self.listener.incoming() {
             match client {
                 Ok(client) => {
@@ -35,8 +37,9 @@ impl FtpServer {
     }
 
     pub fn do_one_listen(&self) -> Result<()> {
-        let pi = ProtocolInterpreter {};
-        let (client, addr) = self.listener.accept()?;
+        let mut dtp = DataTransferProcess::new(".".to_owned());
+        let mut pi = ProtocolInterpreter::new(&mut dtp);
+        let (client, _) = self.listener.accept()?;
         pi.handle_client(client)?;
         Ok(())
     }
