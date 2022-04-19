@@ -1,11 +1,12 @@
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::thread;
+use crate::config::Config;
 
 use crate::ftpserver::FtpServer;
 use crate::protocol_interpreter::{Reply, Client};
 
 fn spawn_server() -> Client {
-    let ftp = FtpServer::new((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let mut ftp = FtpServer::new(Config::default()).unwrap();
     let addr = ftp.addr().unwrap();
     thread::spawn(move || {
         ftp.do_one_listen();

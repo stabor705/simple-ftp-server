@@ -2,12 +2,14 @@ mod protocol_interpreter;
 mod data_transfer_process;
 mod ftpserver;
 mod test;
+mod config;
 
 use simplelog::*;
 use anyhow::Result;
 
 use std::fs::File;
 use crate::ftpserver::FtpServer;
+use crate::config as ftp_config;
 
 fn main() -> Result<()> {
     CombinedLogger::init(
@@ -19,7 +21,7 @@ fn main() -> Result<()> {
 
         ]
     ).unwrap();
-    let ftp = FtpServer::new("127.0.0.1:2137")?;
+    let mut ftp = FtpServer::new(ftp_config::Config::default())?;
     ftp.run();
     Ok(())
 }

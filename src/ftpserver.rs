@@ -1,18 +1,21 @@
 use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 
 use crate::protocol_interpreter::ProtocolInterpreter;
+use crate::data_transfer_process::DataTransferProcess;
+use crate::config::Config;
 
 use anyhow::Result;
-use crate::data_transfer_process::DataTransferProcess;
 
 pub struct FtpServer {
-    listener: TcpListener
+    listener: TcpListener,
+    config: Config
 }
 
 impl FtpServer {
-    pub fn new<A: ToSocketAddrs>(addr: A) -> Result<FtpServer> {
+    pub fn new(config: Config) -> Result<FtpServer> {
         Ok(FtpServer {
-            listener: TcpListener::bind(addr)?
+            listener: TcpListener::bind((config.ip, config.control_port))?,
+            config
         })
     }
 
@@ -20,8 +23,8 @@ impl FtpServer {
         Ok(self.listener.local_addr()?)
     }
 
-    pub fn run(&self) -> Result<()> {
-        let mut dtp = DataTransferProcess::new(".".to_owned());
+    pub fn run(&mut self) -> Result<()> {
+        let mut dtp = DataTransferProcess::new(self.config.dir_root.clone());
         let mut pi = ProtocolInterpreter::new(&mut dtp);
         for client in self.listener.incoming() {
             match client {
@@ -36,8 +39,8 @@ impl FtpServer {
         Ok(())
     }
 
-    pub fn do_one_listen(&self) -> Result<()> {
-        let mut dtp = DataTransferProcess::new(".".to_owned());
+    pub fn do_one_listen(&mut self) -> Result<()> {
+        let mut dtp = DataTransferProcess::new(self.config.dir_root.clone());
         let mut pi = ProtocolInterpreter::new(&mut dtp);
         let (client, _) = self.listener.accept()?;
         pi.handle_client(client)?;

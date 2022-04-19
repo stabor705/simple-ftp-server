@@ -83,7 +83,7 @@ pub struct DataRepr {
 
 pub struct DataTransferProcess {
     working_dir: String,
-    mode: Box<dyn Mode>,
+    mode: Box<dyn Mode + Sync + Send>,
     client: Option<TcpStream>,
 }
 
