@@ -21,7 +21,7 @@ impl TestSession {
     pub fn start() -> TestSession {
         let dir = TempDir::new("ftp-test").unwrap();
         let config = Config {
-            ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            ip: Ipv4Addr::LOCALHOST,
             control_port: 0,
             dir_root: dir.path().to_string_lossy().into_owned()
         };

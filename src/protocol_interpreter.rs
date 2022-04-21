@@ -390,7 +390,7 @@ impl CrlfStream {
 }
 
 pub struct Client {
-    pub ip: IpAddr,
+    pub ip: Ipv4Addr,
     pub data_port: u16,
     pub has_quit: bool,
     pub username: String,
@@ -401,13 +401,17 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(stream: TcpStream) -> Client {
-        let addr = stream.peer_addr().unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        stream.set_write_timeout(Some(Duration::from_secs(60))).unwrap();
+    pub fn new(stream: TcpStream) -> Result<Client> {
+        let addr = stream.peer_addr()?;
+        let ip = match addr.ip() {
+            IpAddr::V4(ip) => ip,
+            IpAddr::V6(_) => return Err(Error::msg("Only v4 ip is supported for now"))
+        };
+        stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(60)))?;
 
-        Client {
-            ip: addr.ip(),
+        Ok(Client {
+            ip,
             data_port: addr.port(),
             has_quit: false,
             username: "anonymous".to_owned(),
@@ -415,7 +419,7 @@ impl Client {
             data_repr: DataRepr::default(),
 
             stream: CrlfStream::new(stream)
-        }
+        })
     }
 
     pub fn send_reply(&mut self, reply: Reply) -> Result<()> {
@@ -446,7 +450,7 @@ impl<'a> ProtocolInterpreter<'a> {
 
     pub fn handle_client(&mut self, stream: TcpStream) -> Result<()> {
         //TODO: Get rid of this unwrap
-        let mut client = Client::new(stream);
+        let mut client = Client::new(stream)?;
         log::info!("Got a new connection from {}", client.ip);
         client.send_reply(Reply::ServiceReady)?;
 
@@ -554,7 +558,7 @@ impl<'a> ProtocolInterpreter<'a> {
     }
 
     fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {
-        if let Some(res) = self.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
+        if let Some(res) = self.dtp.connect(SocketAddr::new(IpAddr::V4(client.ip), client.data_port)) {
             match res {
                 Ok(_) => {
                     client.send_reply(Reply::OpeningDataConnection)?;

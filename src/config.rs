@@ -1,9 +1,8 @@
 use std::default::Default;
-use std::net::{IpAddr, Ipv4Addr};
-use std::net::IpAddr::V4;
+use std::net::Ipv4Addr;
 
 pub struct Config {
-    pub ip: IpAddr,
+    pub ip: Ipv4Addr,
     pub control_port: u16,
     pub dir_root: String
 }
@@ -11,7 +10,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            ip: V4(Ipv4Addr::LOCALHOST),
+            ip: Ipv4Addr::LOCALHOST,
             control_port: 0,
             dir_root: ".".to_owned()
         }
