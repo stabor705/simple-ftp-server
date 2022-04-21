@@ -172,9 +172,9 @@ impl From<Error> for Reply {
     }
 }
 
-#[derive(EnumString)]
+#[derive(EnumString, strum_macros::Display)]
 #[strum(ascii_case_insensitive)]
-enum Command {
+pub enum Command {
     // Implemented
 
     User(String),
@@ -319,39 +319,44 @@ impl Command {
         };
         Ok(command)
     }
+
+    pub fn to_line(&self) -> String {
+        use Command::*;
+        match self {
+            User(username) => format!("{} {}", self.to_string(), username),
+            Pass(pass) => format!("{} {}", self.to_string(), pass),
+            Port((ip, port)) => {
+                let p1 = port >> 8;
+                let p2 = port & 0b0000000011111111;
+                format!("{} ({},{},{},{},{},{})", self.to_string(), ip[0], ip[1], ip[2], ip[3], p1, p2)
+            }
+            Type(data_type) => format!("{} {}", self.to_string(), data_type),
+            Stru(data_structure) => format!("{} {}", self.to_string(), data_structure),
+            Mode(transfer_mode) => format!("{} {}", self.to_string(), transfer_mode),
+            Retr(path) => format!("{} {}", self.to_string(), path),
+            Nlst(path) => match path {
+                Some(path) => format!("{} {}", self.to_string(), path),
+                None => self.to_string()
+            }
+            Stor(path) => format!("{} {}", self.to_string(), path),
+            _ => self.to_string()
+        }
+    }
 }
 
-pub struct Client {
-    pub ip: IpAddr,
-    pub data_port: u16,
-    pub has_quit: bool,
-    pub username: String,
-    pub password: String,
-    pub data_repr: DataRepr,
-
+pub struct CrlfStream {
     stream: TcpStream
 }
 
-impl Client {
-    pub fn new(stream: TcpStream) -> Client {
-        let addr = stream.peer_addr().unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
-        stream.set_write_timeout(Some(Duration::from_secs(60))).unwrap();
+const CRLF: &'static str = "\r\n";
 
-        Client {
-            ip: addr.ip(),
-            data_port: addr.port(),
-            has_quit: false,
-            username: "anonymous".to_owned(),
-            password: "anonymous".to_owned(),
-            data_repr: DataRepr::default(),
+impl CrlfStream {
 
-            stream
-        }
+    pub fn new(stream: TcpStream) -> CrlfStream {
+        CrlfStream { stream }
     }
 
     pub fn send_message(&mut self, msg: &str) -> Result<()> {
-        log::debug!("----> {}", msg);
         self.stream.write_all(msg.as_bytes())?;
         self.stream.write_all(CRLF.as_bytes())?;
         Ok(())
@@ -380,8 +385,51 @@ impl Client {
                 }
             }
         }
-        log::debug!("<---- {}", message);
         Ok(message)
+    }
+}
+
+pub struct Client {
+    pub ip: IpAddr,
+    pub data_port: u16,
+    pub has_quit: bool,
+    pub username: String,
+    pub password: String,
+    pub data_repr: DataRepr,
+
+    stream: CrlfStream
+}
+
+impl Client {
+    pub fn new(stream: TcpStream) -> Client {
+        let addr = stream.peer_addr().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        stream.set_write_timeout(Some(Duration::from_secs(60))).unwrap();
+
+        Client {
+            ip: addr.ip(),
+            data_port: addr.port(),
+            has_quit: false,
+            username: "anonymous".to_owned(),
+            password: "anonymous".to_owned(),
+            data_repr: DataRepr::default(),
+
+            stream: CrlfStream::new(stream)
+        }
+    }
+
+    pub fn send_reply(&mut self, reply: Reply) -> Result<()> {
+        let msg = reply.to_string();
+        log::debug!("----> {}", msg);
+        self.stream.send_message(msg.as_str())?;
+        Ok(())
+    }
+
+    pub fn read_command(&mut self) -> Result<Command> {
+        let msg = self.stream.read_message()?;
+        log::debug!("<---- {}", msg);
+        let command = Command::parse_line(msg.as_str())?;
+        Ok(command)
     }
 
 }
@@ -390,7 +438,6 @@ pub struct ProtocolInterpreter<'a> {
     dtp: &'a mut DataTransferProcess
 }
 
-const CRLF: &'static str = "\r\n";
 
 impl<'a> ProtocolInterpreter<'a> {
     pub fn new(dtp: &mut DataTransferProcess) -> ProtocolInterpreter {
@@ -401,14 +448,13 @@ impl<'a> ProtocolInterpreter<'a> {
         //TODO: Get rid of this unwrap
         let mut client = Client::new(stream);
         log::info!("Got a new connection from {}", client.ip);
-        client.send_message(Reply::ServiceReady.to_string().as_str())?;
+        client.send_reply(Reply::ServiceReady)?;
 
         while !client.has_quit  {
-            let message = client.read_message()?;
-            let command = match Command::parse_line(message.as_str()) {
+            let command = match client.read_command() {
                 Ok(command) => command,
                 Err(_) => {
-                    client.send_message(Reply::SyntaxError.to_string().as_str())?;
+                    client.send_reply(Reply::SyntaxError)?;
                     continue;
                 }
             };
@@ -419,7 +465,7 @@ impl<'a> ProtocolInterpreter<'a> {
                     e.into()
                 }
             };
-            client.send_message(reply.to_string().as_str())?;
+            client.send_reply(reply);
         }
         log::info!("Connection with client {} properly closed.", client.ip);
         Ok(())
@@ -511,7 +557,7 @@ impl<'a> ProtocolInterpreter<'a> {
         if let Some(res) = self.dtp.connect(SocketAddr::new(client.ip, client.data_port)) {
             match res {
                 Ok(_) => {
-                    client.send_message(Reply::OpeningDataConnection.to_string().as_str())?;
+                    client.send_reply(Reply::OpeningDataConnection)?;
                     Ok(())
                 }
                 Err(e) => Err(Error::new(e))

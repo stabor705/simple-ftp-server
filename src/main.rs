@@ -1,8 +1,8 @@
 mod protocol_interpreter;
 mod data_transfer_process;
 mod ftpserver;
-mod test;
 mod config;
+mod test;
 
 use simplelog::*;
 use anyhow::Result;
