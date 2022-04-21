@@ -3,7 +3,7 @@ use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure,
 use std::net::{TcpStream, IpAddr, SocketAddr, Ipv4Addr};
 use std::io::{Write, Read};
 use std::time::{Duration};
-use std::str::from_utf8;
+use std::str::{from_utf8, FromStr};
 use std::string::ToString;
 use std::fmt::{Debug, Display, Formatter};
 
@@ -11,6 +11,42 @@ use strum::EnumMessage;
 use strum_macros::{EnumString, EnumMessage};
 use fallible_iterator::FallibleIterator;
 use anyhow::{Result, Error};
+
+#[derive(PartialEq)]
+struct HostPort {
+    pub ip: Ipv4Addr,
+    pub port: u16
+}
+
+impl FromStr for HostPort {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<HostPort> {
+        let nums: Vec<u8> = fallible_iterator::convert(
+            s.split(',').map(|c| c.parse::<u8>())
+        ).collect()?;
+        if nums.len() < 6 {
+            return Err(Error::new(ArgError::BadArg));
+        }
+        let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
+        let port = ((nums[4] as u16) << 8) + nums[5] as u16;
+        Ok(HostPort { ip, port })
+    }
+}
+
+impl ToString for HostPort {
+    fn to_string(&self) -> String {
+        let ip = self.ip.octets();
+        let p1 = self.port >> 8;
+        let p2 = self.port & 0xFF;
+        format!("{},{},{},{},{},{}", ip[0], ip[1], ip[2], ip[3], p1, p2)
+    }
+}
+
+impl Default for HostPort {
+    fn default() -> Self {
+        HostPort { ip: Ipv4Addr::LOCALHOST, port: 0 }
+    }
+}
 
 #[allow(dead_code)]
 #[derive(EnumMessage, PartialEq)]
@@ -36,7 +72,7 @@ pub enum Reply {
     #[strum(message = "Closing data connection. Requested file action successful")]
     FileActionSuccessful,
     #[strum(message = "Entering passive mode ({})")]
-    EnteringPassiveMode((Ipv4Addr, u16)),
+    EnteringPassiveMode(HostPort),
     #[strum(message = "User logged in, proceed")]
     UserLoggedIn,
     #[strum(message = "Requested file action okay, proceed")]
@@ -139,12 +175,7 @@ impl ToString for Reply {
         use Reply::*;
         let response = format!("{} {}", self.status_code(), self.get_message().unwrap());
         match self {
-            EnteringPassiveMode((ip, port)) => {
-                let h = ip.octets();
-                let p1 = port >> 8;
-                let p2 = port & 0b0000000011111111;
-                response.replace("{}", format!("{},{},{},{},{},{}", h[0], h[1], h[2], h[3], p1, p2).as_str())
-            }
+            EnteringPassiveMode(host_port) => response.replace("{}", host_port.to_string().as_str()),
             Created(pathname) => response.replace("{}", pathname),
             _ => response
         }
@@ -180,7 +211,7 @@ pub enum Command {
     User(String),
     Pass(String),
     Quit,
-    Port(([u8; 4], u16)),
+    Port(HostPort),
     Type(DataType),
     Stru(DataStructure),
     Mode(TransferMode),
@@ -251,16 +282,8 @@ impl Command {
                 Pass(pass.to_owned())
             }
             Port(_) => {
-                let b: Vec<u8> = fallible_iterator::convert(
-                    s.split(',').map(|c| c.parse::<u8>())
-                ).collect()?;
-                if b.len() < 6 {
-                    return Err(Error::new(ArgError::BadArg));
-                }
-                let mut ip: [u8; 4] = [0; 4];
-                ip.clone_from_slice(&b[0..4]);
-                let port = ((b[4] as u16) << 8) + b[5] as u16;
-                Port((ip, port))
+                let host_port = HostPort::from_str(s)?;
+                Port(host_port)
             }
             Type(_) => {
                 let data_type: DataType = words.next().ok_or(ArgError::ArgMissing)?
@@ -325,11 +348,7 @@ impl Command {
         match self {
             User(username) => format!("{} {}", self.to_string(), username),
             Pass(pass) => format!("{} {}", self.to_string(), pass),
-            Port((ip, port)) => {
-                let p1 = port >> 8;
-                let p2 = port & 0b0000000011111111;
-                format!("{} ({},{},{},{},{},{})", self.to_string(), ip[0], ip[1], ip[2], ip[3], p1, p2)
-            }
+            Port(host_port) => format!("{} {}", self.to_string(), host_port.to_string()),
             Type(data_type) => format!("{} {}", self.to_string(), data_type),
             Stru(data_structure) => format!("{} {}", self.to_string(), data_structure),
             Mode(transfer_mode) => format!("{} {}", self.to_string(), transfer_mode),
@@ -498,8 +517,8 @@ impl<'a> ProtocolInterpreter<'a> {
         Ok(Reply::ServiceClosing)
     }
 
-    fn port(client: &mut Client, host_port: ([u8; 4], u16)) -> Result<Reply> {
-        client.data_port = host_port.1;
+    fn port(client: &mut Client, host_port: HostPort) -> Result<Reply> {
+        client.data_port = host_port.port;
         Ok(Reply::CommandOk)
     }
 
@@ -536,7 +555,7 @@ impl<'a> ProtocolInterpreter<'a> {
             IpAddr::V4(ip) => ip,
             IpAddr::V6(ip) => unreachable!() //TODO: it's gross
         };
-        Ok(Reply::EnteringPassiveMode((ip, addr.port())))
+        Ok(Reply::EnteringPassiveMode(HostPort { ip, port: addr.port() }))
     }
 
     fn retr(&mut self, client: &mut Client, path: String) -> Result<Reply> {
@@ -581,7 +600,7 @@ mod tests {
     fn test_reply_creation() {
         let reply = Reply::CommandOk;
         assert_eq!(reply.to_string(), "200 Command okay");
-        let reply = Reply::EnteringPassiveMode((Ipv4Addr::new(127, 0, 0, 1), 8888));
+        let reply = Reply::EnteringPassiveMode(HostPort {ip: Ipv4Addr::LOCALHOST, port: 8888});
         assert_eq!(reply.to_string(), "227 Entering passive mode (127,0,0,1,34,184)");
         let reply = Reply::Created("very-important-directory".to_owned());
         assert_eq!(reply.to_string(), "257 \"very-important-directory\" created")
