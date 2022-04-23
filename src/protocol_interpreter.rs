@@ -1,6 +1,6 @@
 use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataFormat, DataRepr};
 
-use std::net::{TcpStream, IpAddr, SocketAddr, Ipv4Addr};
+use std::net::{TcpStream, IpAddr, SocketAddr, Ipv4Addr, ToSocketAddrs};
 use std::io::{Write, Read};
 use std::time::{Duration};
 use std::str::{from_utf8, FromStr};
@@ -13,7 +13,7 @@ use fallible_iterator::FallibleIterator;
 use anyhow::{Result, Error};
 
 #[derive(PartialEq)]
-struct HostPort {
+pub struct HostPort {
     pub ip: Ipv4Addr,
     pub port: u16
 }
@@ -71,7 +71,7 @@ pub enum Reply {
     DataConnectionOpen,
     #[strum(message = "Closing data connection. Requested file action successful")]
     FileActionSuccessful,
-    #[strum(message = "Entering passive mode ({})")]
+    #[strum(message = "Entering passive mode {}")]
     EnteringPassiveMode(HostPort),
     #[strum(message = "User logged in, proceed")]
     UserLoggedIn,
