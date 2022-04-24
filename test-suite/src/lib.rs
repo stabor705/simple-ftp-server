@@ -1,7 +1,8 @@
 use std::thread;
 use std::fs::File;
+use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
 
 use ftp::FtpServer;
@@ -47,8 +48,14 @@ impl TestEnvironment {
     }
 
     pub fn create_empty_file(&self, path: &str) {
-        File::create(self.dir.path().join(Path::new(path))).unwrap();
+        File::create(self.dir.path().join(path)).unwrap();
     }
+
+    pub fn create_file(&self, path: &str, contents: &[u8]) {
+        let mut file = File::create(self.dir.path().join(path)).unwrap();
+        file.write_all(contents).unwrap();
+    }
+
 }
 
 #[cfg(test)]
@@ -72,5 +79,18 @@ mod tests {
         let mut list = ftp.nlst(None).unwrap();
         list.sort();
         assert_eq!(list, vec!["1", "2", "3"]);
+    }
+
+    #[test]
+    fn test_file_receiving() {
+        let env = TestEnvironment::new();
+        let filename = "lol.txt";
+        let text = "Hello World!";
+        env.create_file(filename, text.as_bytes());
+
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        let cursor = ftp.simple_retr(filename).unwrap();
+        assert_eq!(cursor.into_inner().as_slice(), text.as_bytes());
+        ftp.quit().unwrap();
     }
 }

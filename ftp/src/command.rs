@@ -131,7 +131,7 @@ impl Command {
             }
             Retr(_) => {
                 let path = words.next().ok_or(ArgError::ArgMissing)?;
-                Pass(path.to_owned())
+                Retr(path.to_owned())
             }
             Stor(_) => {
                 let path = words.next().ok_or(ArgError::ArgMissing)?;

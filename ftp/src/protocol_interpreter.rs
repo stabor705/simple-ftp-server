@@ -127,7 +127,8 @@ impl<'a> ProtocolInterpreter<'a> {
         while !client.has_quit  {
             let command = match client.read_command() {
                 Ok(command) => command,
-                Err(_) => {
+                Err(e) => {
+                    log::error!("{}", e);
                     client.send_reply(Reply::SyntaxError)?;
                     continue;
                 }
