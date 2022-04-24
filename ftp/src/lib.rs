@@ -11,6 +11,7 @@ pub use reply::Reply;
 pub use command::{Command, ArgError};
 pub use config::Config;
 pub use ftpserver::FtpServer;
+pub use protocol_interpreter::CrlfStream;
 
 #[cfg(test)]
 mod test {

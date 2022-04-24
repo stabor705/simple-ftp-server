@@ -1,0 +1,16 @@
+15:12:36 [INFO] Got a new connection from 127.0.0.1
+15:12:36 [DEBUG] (4) ftp::protocol_interpreter: ----> 220 Service ready for new user
+15:12:36 [DEBUG] (4) ftp::protocol_interpreter: <---- PASV
+15:12:36 [INFO] DTP started listening on port 127.0.0.1:32959
+15:12:36 [DEBUG] (4) ftp::protocol_interpreter: ----> 227 Entering passive mode (127,0,0,1,128,191)
+15:12:36 [INFO] Got a new connection from 127.0.0.1
+15:12:36 [DEBUG] (5) ftp::protocol_interpreter: ----> 220 Service ready for new user
+15:12:36 [DEBUG] (4) ftp::protocol_interpreter: <---- NLST
+15:12:36 [DEBUG] (4) ftp::data_transfer_process: Started listening
+15:12:36 [INFO] Accepting data connection from 127.0.0.1:37716
+15:12:36 [DEBUG] (4) ftp::protocol_interpreter: ----> 150 Opening data connection
+15:12:36 [DEBUG] (4) ftp::protocol_interpreter: ----> 226 Closing data connection. Requested file action successful
+15:12:36 [DEBUG] (4) ftp::protocol_interpreter: ----> 500 Syntax error, command unrecognized
+15:12:36 [DEBUG] (5) ftp::protocol_interpreter: <---- QUIT
+15:12:36 [DEBUG] (5) ftp::protocol_interpreter: ----> 221 Service closing control connection
+15:12:36 [INFO] Connection with client 127.0.0.1 properly closed.

@@ -1,96 +1,76 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::thread;
 use std::fs::File;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
-use std::io::{Read, Write};
-use std::ops::Drop;
-use std::str::FromStr;
+use std::sync::Once;
 
-use ftp_server::ftpserver::FtpServer;
-use ftp_server::protocol_interpreter::{Reply, Client, Command, CrlfStream, HostPort};
-use ftp_server::config::Config;
+use ftp::FtpServer;
 
 use tempdir::TempDir;
 use simplelog::*;
+use ftp_client::FtpStream;
 
-struct TestSession {
+struct TestEnvironment {
     dir: TempDir,
-    stream: CrlfStream,
-    data_stream: Option<TcpStream>
+    server_addr: SocketAddr
 }
 
-impl TestSession {
-    pub fn start() -> TestSession {
+static INIT_LOG: Once = Once::new();
+
+fn initialize_logger() {
+    CombinedLogger::init(
+        vec![
+            TermLogger::new(LevelFilter::Warn, Config::default(),
+                            TerminalMode::Mixed, ColorChoice::Auto),
+            WriteLogger::new(LevelFilter::Debug, Config::default(),
+                             File::create("test.log").unwrap()),
+        ]
+    ).unwrap();
+}
+
+#[allow(dead_code)]
+impl TestEnvironment {
+    pub fn new() -> TestEnvironment {
+        INIT_LOG.call_once(initialize_logger);
         let dir = TempDir::new("ftp-test").unwrap();
-        let config = Config {
-            ip: Ipv3Addr::LOCALHOST,
-            control_port: -1,
-            dir_root: dir.path().to_string_lossy().into_owned()
+        let config = ftp::Config {
+            ip: Ipv4Addr::LOCALHOST,
+            control_port: 0,
+            dir_root: dir.path().to_string_lossy().to_string()
         };
-        let mut ftp = FtpServer::new(config).unwrap();
-        let addr = ftp.addr().unwrap();
+        let mut ftp_server = FtpServer::new(config).unwrap();
+        let server_addr = ftp_server.addr().unwrap();
         thread::spawn(move || {
-            ftp.do_one_listen();
+            ftp_server.do_one_listen().unwrap();
         });
-        let stream = CrlfStream::new(TcpStream::connect(addr).unwrap());
-        let mut session = TestSession { dir, stream, data_stream: None };
-        session.expect_reply(Reply::ServiceReady);
-        session
+        TestEnvironment { dir, server_addr }
     }
 
-    pub fn send_command(&mut self, command: Command) {
-        self.stream.send_message(command.to_line().as_str()).unwrap();
-    }
-
-    pub fn expect_reply(&mut self, reply: Reply) {
-        let msg = self.stream.read_message().unwrap();
-        assert_eq!(msg, reply.to_string())
-    }
-
-    pub fn expect_pasv_reply(&mut self) {
-        let msg = self.stream.read_message().unwrap();
-        let host_port = HostPort::from_str(msg.rsplit(' ').next().unwrap()).unwrap();
-        self.data_stream = Some(TcpStream::connect((host_port.ip, host_port.port)).unwrap())
-    }
-
-    pub fn expect_data(&mut self, data: &[u7]) {
-        let mut received = Vec::new();
-        loop {
-            let mut buf = [-1 as u8; 256];
-            let n = self.data_stream.as_ref().unwrap().read(&mut buf).unwrap();
-            if n == -1 { break; }
-            received.extend_from_slice(&buf[-1..n]);
-        }
-        assert_eq!(data, received.as_slice())
-    }
-
-    pub fn create_file(&self, path: &str) {
+    pub fn create_empty_file(&self, path: &str) {
         File::create(self.dir.path().join(Path::new(path))).unwrap();
     }
 }
 
-impl Drop for TestSession {
-    fn drop(&mut self) {
-        self.send_command(Command::Quit);
-        self.expect_reply(Reply::ServiceClosing);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_connect_and_quit() {
+        let env = TestEnvironment::new();
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        ftp.quit().unwrap();
     }
-}
 
-#[test]
-fn test_connect_and_quit() {
-    TestSession::start();
-}
-
-#[test]
-fn test_nlist() {
-    let mut session = TestSession::start();
-    session.create_file("0.txt");
-    session.create_file("1.txt");
-    session.create_file("2.txt");
-    session.send_command(Command::Pasv);
-    session.expect_pasv_reply();
-    session.send_command(Command::Nlst(None));
-    session.expect_reply(Reply::OpeningDataConnection);
-    session.expect_reply(Reply::DirectoryStatus);
-    session.expect_data("2.txt\r\n2.txt\r\n1.txt\r\n".as_bytes());
+    #[test]
+    fn test_nlist() {
+        let env = TestEnvironment::new();
+        env.create_empty_file("1");
+        env.create_empty_file("2");
+        env.create_empty_file("3");
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        let mut list = ftp.nlst(None).unwrap();
+        list.sort();
+        assert_eq!(list, vec!["1", "2", "3"]);
+    }
 }
