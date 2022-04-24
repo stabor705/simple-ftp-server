@@ -1,14 +1,9 @@
-mod protocol_interpreter;
-mod data_transfer_process;
-mod ftpserver;
-mod config;
+use std::fs::File;
+
+use ftp::FtpServer;
 
 use simplelog::*;
 use anyhow::Result;
-
-use std::fs::File;
-use crate::ftpserver::FtpServer;
-use crate::config as ftp_config;
 
 fn main() -> Result<()> {
     CombinedLogger::init(

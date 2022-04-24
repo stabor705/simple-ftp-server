@@ -1,8 +1,8 @@
-use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
+use std::net::{SocketAddr, TcpListener};
 
 use crate::protocol_interpreter::ProtocolInterpreter;
 use crate::data_transfer_process::DataTransferProcess;
-use crate::config::Config;
+use crate::Config;
 
 use anyhow::Result;
 
