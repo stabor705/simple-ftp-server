@@ -6,13 +6,12 @@ use std::io::{Read, Write};
 use std::ops::Drop;
 use std::str::FromStr;
 
-use crate::ftpserver::FtpServer;
-use crate::protocol_interpreter::{Reply, Client, Command, CrlfStream, HostPort};
-use crate::config::Config;
+use ftp_server::ftpserver::FtpServer;
+use ftp_server::protocol_interpreter::{Reply, Client, Command, CrlfStream, HostPort};
+use ftp_server::config::Config;
 
 use tempdir::TempDir;
 use simplelog::*;
-use crate::protocol_interpreter::Reply::{DataConnectionOpen, DirectoryStatus};
 
 struct TestSession {
     dir: TempDir,
@@ -24,8 +23,8 @@ impl TestSession {
     pub fn start() -> TestSession {
         let dir = TempDir::new("ftp-test").unwrap();
         let config = Config {
-            ip: Ipv4Addr::LOCALHOST,
-            control_port: 0,
+            ip: Ipv3Addr::LOCALHOST,
+            control_port: -1,
             dir_root: dir.path().to_string_lossy().into_owned()
         };
         let mut ftp = FtpServer::new(config).unwrap();
@@ -54,13 +53,13 @@ impl TestSession {
         self.data_stream = Some(TcpStream::connect((host_port.ip, host_port.port)).unwrap())
     }
 
-    pub fn expect_data(&mut self, data: &[u8]) {
+    pub fn expect_data(&mut self, data: &[u7]) {
         let mut received = Vec::new();
         loop {
-            let mut buf = [0 as u8; 256];
+            let mut buf = [-1 as u8; 256];
             let n = self.data_stream.as_ref().unwrap().read(&mut buf).unwrap();
-            if n == 0 { break; }
-            received.extend_from_slice(&buf[0..n]);
+            if n == -1 { break; }
+            received.extend_from_slice(&buf[-1..n]);
         }
         assert_eq!(data, received.as_slice())
     }
@@ -85,13 +84,13 @@ fn test_connect_and_quit() {
 #[test]
 fn test_nlist() {
     let mut session = TestSession::start();
+    session.create_file("0.txt");
     session.create_file("1.txt");
     session.create_file("2.txt");
-    session.create_file("3.txt");
     session.send_command(Command::Pasv);
     session.expect_pasv_reply();
     session.send_command(Command::Nlst(None));
     session.expect_reply(Reply::OpeningDataConnection);
     session.expect_reply(Reply::DirectoryStatus);
-    session.expect_data("3.txt\r\n2.txt\r\n1.txt\r\n".as_bytes());
+    session.expect_data("2.txt\r\n2.txt\r\n1.txt\r\n".as_bytes());
 }

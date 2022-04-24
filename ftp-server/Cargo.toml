@@ -1,5 +1,5 @@
 [package]
-name = "simple-ftp-server"
+name = "ftp_server"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,4 +12,3 @@ strum = "0.24"
 strum_macros = "0.24"
 fallible-iterator = "0.2.0"
 anyhow = "1.0.56"
-tempdir = "0.3.7"
