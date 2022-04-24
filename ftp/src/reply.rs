@@ -29,7 +29,7 @@ pub enum Reply {
     DataConnectionOpen,
     #[strum(message = "Closing data connection. Requested file action successful")]
     FileActionSuccessful,
-    #[strum(message = "Entering passive mode {}")]
+    #[strum(message = "Entering passive mode ({})")]
     EnteringPassiveMode(HostPort),
     #[strum(message = "User logged in, proceed")]
     UserLoggedIn,
