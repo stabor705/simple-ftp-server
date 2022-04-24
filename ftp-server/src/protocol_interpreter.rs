@@ -282,7 +282,8 @@ impl Command {
                 Pass(pass.to_owned())
             }
             Port(_) => {
-                let host_port = HostPort::from_str(s)?;
+                let host_port = words.next().ok_or(ArgError::ArgMissing)?
+                    .parse()?;
                 Port(host_port)
             }
             Type(_) => {
