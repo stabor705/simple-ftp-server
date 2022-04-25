@@ -36,13 +36,16 @@ impl CrlfStream {
         //TODO: max message len
         let mut message = String::new();
         loop {
-            let mut buf = [0 as u8; 256];
+            let mut buf = [0 as u8; 8192];
             let n = self.stream.read(&mut buf)?;
             if n == 0 {
-                return Err(Error::new(io::Error::from(io::ErrorKind::ConnectionAborted)));
+                return Err(Error::new(io::Error::new(io::ErrorKind::ConnectionAborted,
+                                                      "Client quit unexpectedly.")));
             }
-            //TODO: I don't think that I want to use utf8 here, that's why unwrap is here
-            //gonna get rid of it someday
+            //TODO:
+            //There are absolutely no guarantees about fragmentation of data received.
+            //Thus, this approach is not correct. What if CR is send first, and then LF in other
+            //packet? Gonna fix is after moving to non_utf8 string
             let new_text = from_utf8(&buf[0..n]).unwrap();
             match new_text.find(CRLF) {
                 None => message.push_str(new_text),
@@ -75,7 +78,7 @@ impl Client {
         let addr = stream.peer_addr()?;
         let ip = match addr.ip() {
             IpAddr::V4(ip) => ip,
-            IpAddr::V6(_) => return Err(Error::msg("IPv6 is not supported."))
+            IpAddr::V6(_) => panic!("IPv6 is not supported")
         };
         stream.set_read_timeout(Some(Duration::from_secs(60)))?;
         stream.set_write_timeout(Some(Duration::from_secs(60)))?;
@@ -119,7 +122,6 @@ impl<'a> ProtocolInterpreter<'a> {
     }
 
     pub fn handle_client(&mut self, stream: TcpStream) -> Result<()> {
-        //TODO: Get rid of this unwrap
         let mut client = Client::new(stream)?;
         log::info!("Got a new connection from {}", client.ip);
         client.send_reply(Reply::ServiceReady)?;
@@ -205,7 +207,7 @@ impl<'a> ProtocolInterpreter<'a> {
         let addr = self.dtp.make_passive()?;
         let ip = match addr.ip() {
             IpAddr::V4(ip) => ip,
-            IpAddr::V6(_) => unreachable!() //TODO: it's gross
+            IpAddr::V6(_) => panic!("IPv6 is not supported")
         };
         Ok(Reply::EnteringPassiveMode(HostPort { ip, port: addr.port() }))
     }
