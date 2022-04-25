@@ -1,5 +1,5 @@
 use crate::HostPort;
-use crate::ArgError;
+use crate::CommandError;
 
 use strum_macros::EnumMessage;
 use strum::EnumMessage;
@@ -144,7 +144,7 @@ impl From<Error> for Reply {
     fn from(e: Error) -> Self {
         use Reply::*;
 
-        if e.is::<ArgError>() {
+        if e.is::<CommandError>() {
             SyntaxErrorArg
         } else if e.is::<std::io::Error>() {
             let error: std::io::Error = e.downcast().unwrap();

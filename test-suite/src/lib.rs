@@ -77,6 +77,7 @@ mod tests {
         env.create_empty_file("3");
         let mut ftp = FtpStream::connect(env.server_addr).unwrap();
         let mut list = ftp.nlst(None).unwrap();
+        ftp.quit();
         list.sort();
         assert_eq!(list, vec!["1", "2", "3"]);
     }
@@ -84,7 +85,7 @@ mod tests {
     #[test]
     fn test_file_receiving() {
         let env = TestEnvironment::new();
-        let filename = "lol.txt";
+        let filename = "a very important file with a very long name lol.txt";
         let text = "Hello World!";
         env.create_file(filename, text.as_bytes());
 

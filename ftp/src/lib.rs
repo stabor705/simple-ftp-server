@@ -8,7 +8,7 @@ mod ftpserver;
 
 pub use hostport::HostPort;
 pub use reply::Reply;
-pub use command::{Command, ArgError};
+pub use command::{Command, CommandError};
 pub use config::Config;
 pub use ftpserver::FtpServer;
 pub use protocol_interpreter::CrlfStream;

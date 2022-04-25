@@ -1,4 +1,6 @@
 use std::fmt::{Display, Formatter};
+use std::fs::metadata;
+use std::str::FromStr;
 
 use crate::HostPort;
 use crate::data_transfer_process::{DataType, DataStructure, TransferMode, DataFormat};
@@ -48,63 +50,72 @@ pub enum Command {
     Help,
 }
 
+//TODO: More info
 #[derive(Debug)]
-pub enum ArgError {
+pub enum CommandError {
     ArgMissing,
-    BadArg
+    BadArg,
+    InvalidCommand
 }
 
-impl Display for ArgError {
+impl Display for CommandError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use ArgError::*;
+        use CommandError::*;
 
         match *self {
             ArgMissing => write!(f, "missing required argument"),
-            BadArg => write!(f, "invalid format of provided argument")
+            BadArg => write!(f, "invalid format of provided argument"),
+            InvalidCommand => write!(f, "command not found")
         }
     }
 }
 
-impl std::error::Error for ArgError {}
+impl std::error::Error for CommandError {}
 
 impl Command {
-    pub fn parse_line(s: &str) -> Result<Command, ArgError> {
+    pub fn parse_line(s: &str) -> Result<Command, CommandError> {
         use Command::*;
 
-        let mut words = s.split(' ');
-        let command = words.next().ok_or(ArgError::ArgMissing)?
-            .parse::<Command>().map_err(|_| ArgError::BadArg)?;
+        let (command, arg) = match s.split_once(' ') {
+            Some((command, arg)) => (command, Some(arg)),
+            None => (s, None)
+        };
+        let command = Command::from_str(command).map_err(|_| CommandError::InvalidCommand)?;
         let command = match command {
             User(_) => {
-                let username = words.next().ok_or(ArgError::ArgMissing)?;
+                let username = arg.ok_or(CommandError::ArgMissing)?;
                 User(username.to_owned())
             }
             Pass(_) => {
-                let pass = words.next().ok_or(ArgError::ArgMissing)?;
+                let pass = arg.ok_or(CommandError::ArgMissing)?;
                 Pass(pass.to_owned())
             }
             Port(_) => {
-                let host_port = words.next().ok_or(ArgError::ArgMissing)?
-                    .parse().map_err(|_| ArgError::BadArg)?;
+                let host_port = arg.ok_or(CommandError::ArgMissing)?
+                    .parse().map_err(|_| CommandError::BadArg)?;
                 Port(host_port)
             }
             Type(_) => {
-                let data_type: DataType = words.next().ok_or(ArgError::ArgMissing)?
-                    .parse().map_err(|_| ArgError::BadArg)?;
+                let arg = arg.ok_or(CommandError::ArgMissing)?;
+                let (data_type, arg) = match arg.split_once(' ') {
+                    Some((data_type, arg)) => (data_type, Some(arg)),
+                    None => (arg, None)
+                };
+                let data_type = DataType::from_str(data_type).map_err(|_| CommandError::BadArg)?;
                 let data_type = match data_type {
                     DataType::ASCII(_) => {
-                        let data_format: DataFormat = match words.next() {
+                        let data_format: DataFormat = match arg {
                             Some(data_format) => {
-                                data_format.parse().map_err(|_| ArgError::BadArg)?
+                                data_format.parse().map_err(|_| CommandError::BadArg)?
                             }
                             None => DataFormat::default()
                         };
                         DataType::ASCII(data_format)
                     }
                     DataType::EBCDIC(_) => {
-                        let data_format: DataFormat = match words.next() {
+                        let data_format: DataFormat = match arg {
                             Some(data_format) => {
-                                data_format.parse().map_err(|_| ArgError::BadArg)?
+                                data_format.parse().map_err(|_| CommandError::BadArg)?
                             }
                             None => DataFormat::default()
                         };
@@ -112,57 +123,38 @@ impl Command {
                     }
                     DataType::Image => DataType::Image,
                     DataType::Local(_) => {
-                        let byte_size: u8 = words.next().ok_or(ArgError::ArgMissing)?
-                            .parse().map_err(|_| ArgError::BadArg)?;
+                        let byte_size: u8 = arg.ok_or(CommandError::ArgMissing)?
+                            .parse().map_err(|_| CommandError::BadArg)?;
                         DataType::Local(byte_size)
                     }
                 };
                 Type(data_type)
             }
             Stru(_) => {
-                let data_structure: DataStructure = words.next().ok_or(ArgError::ArgMissing)?
-                    .parse().map_err(|_| ArgError::BadArg)?;
+                let data_structure: DataStructure = arg.ok_or(CommandError::ArgMissing)?
+                    .parse().map_err(|_| CommandError::BadArg)?;
                 Stru(data_structure)
             }
             Mode(_) => {
-                let mode: TransferMode = words.next().ok_or(ArgError::ArgMissing)?
-                    .parse().map_err(|_| ArgError::BadArg)?;
+                let mode: TransferMode = arg.ok_or(CommandError::ArgMissing)?
+                    .parse().map_err(|_| CommandError::BadArg)?;
                 Mode(mode)
             }
             Retr(_) => {
-                let path = words.next().ok_or(ArgError::ArgMissing)?;
+                let path = arg.ok_or(CommandError::ArgMissing)?;
                 Retr(path.to_owned())
             }
             Stor(_) => {
-                let path = words.next().ok_or(ArgError::ArgMissing)?;
+                let path = arg.ok_or(CommandError::ArgMissing)?;
                 Stor(path.to_owned())
             }
             Nlst(_) => {
-                let path = words.next().and_then(|x| Some(x.to_owned()));
+                let path = arg.and_then(|x| Some(x.to_owned()));
                 Nlst(path)
             }
             _ => command
         };
         Ok(command)
-    }
-
-    pub fn to_line(&self) -> String {
-        use Command::*;
-        match self {
-            User(username) => format!("{} {}", self.to_string(), username),
-            Pass(pass) => format!("{} {}", self.to_string(), pass),
-            Port(host_port) => format!("{} {}", self.to_string(), host_port.to_string()),
-            Type(data_type) => format!("{} {}", self.to_string(), data_type),
-            Stru(data_structure) => format!("{} {}", self.to_string(), data_structure),
-            Mode(transfer_mode) => format!("{} {}", self.to_string(), transfer_mode),
-            Retr(path) => format!("{} {}", self.to_string(), path),
-            Nlst(path) => match path {
-                Some(path) => format!("{} {}", self.to_string(), path),
-                None => self.to_string()
-            }
-            Stor(path) => format!("{} {}", self.to_string(), path),
-            _ => self.to_string()
-        }
     }
 }
 
