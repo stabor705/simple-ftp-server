@@ -1,21 +1,21 @@
 use std::net::{SocketAddr, TcpListener};
 
-use crate::protocol_interpreter::ProtocolInterpreter;
 use crate::data_transfer_process::DataTransferProcess;
+use crate::protocol_interpreter::ProtocolInterpreter;
 use crate::Config;
 
 use anyhow::Result;
 
 pub struct FtpServer {
     listener: TcpListener,
-    config: Config
+    config: Config,
 }
 
 impl FtpServer {
     pub fn new(config: Config) -> Result<FtpServer> {
         Ok(FtpServer {
             listener: TcpListener::bind((config.ip, config.control_port))?,
-            config
+            config,
         })
     }
 
@@ -33,8 +33,8 @@ impl FtpServer {
                         log::error!("An error while handling connection: {:?}", e);
                     }
                 }
-                Err(e) => log::error!("An error occurred before connection took place: {}", e)
-                }
+                Err(e) => log::error!("An error occurred before connection took place: {}", e),
+            }
         }
         Ok(())
     }

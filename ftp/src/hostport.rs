@@ -1,13 +1,13 @@
+use std::fmt::{Debug, Display, Formatter};
 use std::net::Ipv4Addr;
 use std::str::FromStr;
-use std::fmt::{Debug, Display, Formatter};
 
 use fallible_iterator::FallibleIterator;
 
 #[derive(PartialEq)]
 pub struct HostPort {
     pub ip: Ipv4Addr,
-    pub port: u16
+    pub port: u16,
 }
 
 #[derive(Debug)]
@@ -24,12 +24,11 @@ impl std::error::Error for ParseHostPortError {}
 impl FromStr for HostPort {
     type Err = ParseHostPortError;
     fn from_str(s: &str) -> Result<HostPort, ParseHostPortError> {
-        let nums: Vec<u8> = fallible_iterator::convert(
-            s.split(',').map(|c| c.parse::<u8>())
-        ).collect().map_err(|_| ParseHostPortError {})?;
+        let nums: Vec<u8> = fallible_iterator::convert(s.split(',').map(|c| c.parse::<u8>()))
+            .collect()
+            .map_err(|_| ParseHostPortError {})?;
         if nums.len() < 6 {
-            //TODO: change error
-            return Err(ParseHostPortError {})
+            return Err(ParseHostPortError {});
         }
         let ip = Ipv4Addr::new(nums[0], nums[1], nums[2], nums[3]);
         let port = ((nums[4] as u16) << 8) + nums[5] as u16;
@@ -48,6 +47,9 @@ impl ToString for HostPort {
 
 impl Default for HostPort {
     fn default() -> Self {
-        HostPort { ip: Ipv4Addr::LOCALHOST, port: 0 }
+        HostPort {
+            ip: Ipv4Addr::LOCALHOST,
+            port: 0,
+        }
     }
 }

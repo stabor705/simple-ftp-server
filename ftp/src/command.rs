@@ -1,8 +1,8 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
+use crate::data_transfer_process::{DataFormat, DataStructure, DataType, TransferMode};
 use crate::HostPort;
-use crate::data_transfer_process::{DataType, DataStructure, TransferMode, DataFormat};
 
 use strum_macros::EnumString;
 
@@ -10,7 +10,6 @@ use strum_macros::EnumString;
 #[strum(ascii_case_insensitive)]
 pub enum Command {
     // Implemented
-
     User(String),
     Pass(String),
     Quit,
@@ -25,7 +24,6 @@ pub enum Command {
     Stor(String),
 
     // Not implemented
-
     Acct,
     Cwd,
     Cdup,
@@ -49,12 +47,11 @@ pub enum Command {
     Help,
 }
 
-//TODO: More info
 #[derive(Debug)]
 pub enum CommandError {
     ArgMissing,
     BadArg,
-    InvalidCommand
+    InvalidCommand,
 }
 
 impl Display for CommandError {
@@ -63,8 +60,8 @@ impl Display for CommandError {
 
         match *self {
             ArgMissing => write!(f, "missing required argument"),
-            BadArg => write!(f, "invalid format of provided argument"),
-            InvalidCommand => write!(f, "command not found")
+            BadArg => write!(f, "provided argument was invalid"),
+            InvalidCommand => write!(f, "command not found"),
         }
     }
 }
@@ -77,7 +74,7 @@ impl Command {
 
         let (command, arg) = match s.split_once(' ') {
             Some((command, arg)) => (command, Some(arg)),
-            None => (s, None)
+            None => (s, None),
         };
         let command = Command::from_str(command).map_err(|_| CommandError::InvalidCommand)?;
         let command = match command {
@@ -90,15 +87,17 @@ impl Command {
                 Pass(pass.to_owned())
             }
             Port(_) => {
-                let host_port = arg.ok_or(CommandError::ArgMissing)?
-                    .parse().map_err(|_| CommandError::BadArg)?;
+                let host_port = arg
+                    .ok_or(CommandError::ArgMissing)?
+                    .parse()
+                    .map_err(|_| CommandError::BadArg)?;
                 Port(host_port)
             }
             Type(_) => {
                 let arg = arg.ok_or(CommandError::ArgMissing)?;
                 let (data_type, arg) = match arg.split_once(' ') {
                     Some((data_type, arg)) => (data_type, Some(arg)),
-                    None => (arg, None)
+                    None => (arg, None),
                 };
                 let data_type = DataType::from_str(data_type).map_err(|_| CommandError::BadArg)?;
                 let data_type = match data_type {
@@ -107,7 +106,7 @@ impl Command {
                             Some(data_format) => {
                                 data_format.parse().map_err(|_| CommandError::BadArg)?
                             }
-                            None => DataFormat::default()
+                            None => DataFormat::default(),
                         };
                         DataType::ASCII(data_format)
                     }
@@ -116,27 +115,33 @@ impl Command {
                             Some(data_format) => {
                                 data_format.parse().map_err(|_| CommandError::BadArg)?
                             }
-                            None => DataFormat::default()
+                            None => DataFormat::default(),
                         };
                         DataType::EBCDIC(data_format)
                     }
                     DataType::Image => DataType::Image,
                     DataType::Local(_) => {
-                        let byte_size: u8 = arg.ok_or(CommandError::ArgMissing)?
-                            .parse().map_err(|_| CommandError::BadArg)?;
+                        let byte_size: u8 = arg
+                            .ok_or(CommandError::ArgMissing)?
+                            .parse()
+                            .map_err(|_| CommandError::BadArg)?;
                         DataType::Local(byte_size)
                     }
                 };
                 Type(data_type)
             }
             Stru(_) => {
-                let data_structure: DataStructure = arg.ok_or(CommandError::ArgMissing)?
-                    .parse().map_err(|_| CommandError::BadArg)?;
+                let data_structure: DataStructure = arg
+                    .ok_or(CommandError::ArgMissing)?
+                    .parse()
+                    .map_err(|_| CommandError::BadArg)?;
                 Stru(data_structure)
             }
             Mode(_) => {
-                let mode: TransferMode = arg.ok_or(CommandError::ArgMissing)?
-                    .parse().map_err(|_| CommandError::BadArg)?;
+                let mode: TransferMode = arg
+                    .ok_or(CommandError::ArgMissing)?
+                    .parse()
+                    .map_err(|_| CommandError::BadArg)?;
                 Mode(mode)
             }
             Retr(_) => {
@@ -151,9 +156,8 @@ impl Command {
                 let path = arg.and_then(|x| Some(x.to_owned()));
                 Nlst(path)
             }
-            _ => command
+            _ => command,
         };
         Ok(command)
     }
 }
-

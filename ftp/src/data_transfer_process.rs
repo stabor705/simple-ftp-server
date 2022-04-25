@@ -1,23 +1,23 @@
-use std::net::{TcpStream, SocketAddr, TcpListener, Ipv4Addr};
-use std::fs::{File, read_dir};
+use std::fs::{read_dir, File};
+use std::io::{Error, ErrorKind, Read, Result, Write};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::Path;
-use std::io::{Read, Write, Result, Error, ErrorKind};
-use std::time::{Duration, Instant};
 use std::thread::sleep;
+use std::time::{Duration, Instant};
 
-use strum_macros::{Display, EnumString};
 use fallible_iterator::FallibleIterator;
+use strum_macros::{Display, EnumString};
 
 #[derive(Display, EnumString)]
 pub enum DataType {
-    #[strum(serialize="A")]
+    #[strum(serialize = "A")]
     ASCII(DataFormat),
-    #[strum(serialize="E")]
+    #[strum(serialize = "E")]
     EBCDIC(DataFormat),
-    #[strum(serialize="I")]
+    #[strum(serialize = "I")]
     Image,
-    #[strum(serialize="L")]
-    Local(u8)
+    #[strum(serialize = "L")]
+    Local(u8),
 }
 
 impl Default for DataType {
@@ -28,12 +28,12 @@ impl Default for DataType {
 
 #[derive(Display, EnumString)]
 pub enum DataFormat {
-    #[strum(serialize="N")]
+    #[strum(serialize = "N")]
     NonPrint,
-    #[strum(serialize="T")]
+    #[strum(serialize = "T")]
     TelnetFormatEffectors,
-    #[strum(serialize="C")]
-    CarriageControl
+    #[strum(serialize = "C")]
+    CarriageControl,
 }
 
 impl Default for DataFormat {
@@ -44,12 +44,12 @@ impl Default for DataFormat {
 
 #[derive(Display, EnumString)]
 pub enum DataStructure {
-    #[strum(serialize="F")]
+    #[strum(serialize = "F")]
     FileStructure,
-    #[strum(serialize="R")]
+    #[strum(serialize = "R")]
     RecordStructure,
-    #[strum(serialize="P")]
-    PageStructure
+    #[strum(serialize = "P")]
+    PageStructure,
 }
 
 impl Default for DataStructure {
@@ -60,17 +60,17 @@ impl Default for DataStructure {
 
 #[derive(Display, EnumString)]
 pub enum TransferMode {
-    #[strum(serialize="S")]
+    #[strum(serialize = "S")]
     Stream,
-    #[strum(serialize="B")]
+    #[strum(serialize = "B")]
     Block,
-    #[strum(serialize="C")]
-    Compressed
+    #[strum(serialize = "C")]
+    Compressed,
 }
 
 impl Default for TransferMode {
     fn default() -> Self {
-       TransferMode::Stream
+        TransferMode::Stream
     }
 }
 
@@ -78,7 +78,7 @@ impl Default for TransferMode {
 pub struct DataRepr {
     pub data_type: DataType,
     pub data_structure: DataStructure,
-    pub transfer_mode: TransferMode
+    pub transfer_mode: TransferMode,
 }
 
 pub struct DataTransferProcess {
@@ -118,21 +118,26 @@ impl DataTransferProcess {
                     self.client = Some(client);
                     Some(Ok(()))
                 }
-                Err(e) => Some(Err(e))
-            }
+                Err(e) => Some(Err(e)),
+            },
         }
     }
 
     //TODO: Read on std::path. I should probably add some security measures such as ignoring wildcards.
     pub fn send_file(&mut self, path: &str) -> Result<()> {
-        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
+        let mut client = self
+            .client
+            .as_ref()
+            .ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = Path::new(&self.working_dir).join(path);
         let mut file = File::open(path)?;
         loop {
             //TODO: testing server by sending gigabytes of data to 1GB vps should be fun
             let mut buf = [0; 8192];
             let n = file.read(&mut buf)?;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             client.write_all(&buf[0..n])?;
         }
         self.client = None;
@@ -140,14 +145,18 @@ impl DataTransferProcess {
     }
 
     pub fn receive_file(&mut self, path: &str) -> Result<()> {
-        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
+        let mut client = self
+            .client
+            .as_ref()
+            .ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = Path::new(&self.working_dir).join(path);
         let mut file = File::create(path)?;
         loop {
-            //TODO: How big should it be?
             let mut buf = [0; 8192];
             let n = client.read(&mut buf)?;
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             file.write_all(&buf[0..n])?;
         }
         self.client = None;
@@ -155,7 +164,10 @@ impl DataTransferProcess {
     }
 
     pub fn send_dir_nlisting(&mut self, path: Option<String>) -> Result<()> {
-        let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
+        let mut client = self
+            .client
+            .as_ref()
+            .ok_or(Error::from(ErrorKind::NotConnected))?;
         let listing = self.get_dir_listing(path)?;
         for filename in listing {
             client.write_all(filename.as_bytes())?;
@@ -168,10 +180,11 @@ impl DataTransferProcess {
     fn get_dir_listing(&self, path: Option<String>) -> Result<Vec<String>> {
         let dir = match path {
             Some(path) => Path::new(&self.working_dir).join(path),
-            None => Path::new(&self.working_dir).to_path_buf()
+            None => Path::new(&self.working_dir).to_path_buf(),
         };
         let listing = fallible_iterator::convert(read_dir(dir)?)
-            .map(|entry| Ok(entry.file_name().to_string_lossy().into_owned())).collect()?;
+            .map(|entry| Ok(entry.file_name().to_string_lossy().into_owned()))
+            .collect()?;
         Ok(listing)
     }
 }
@@ -190,14 +203,14 @@ impl Mode for Active {
 
 struct Passive {
     listener: TcpListener,
-    timeout: Duration
+    timeout: Duration,
 }
 
 impl Passive {
     pub fn new(timeout: Duration) -> Result<Passive> {
         Ok(Passive {
             listener: TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?,
-            timeout
+            timeout,
         })
     }
 
@@ -217,7 +230,10 @@ impl Mode for Passive {
                     if in_addr.ip() == addr.ip() {
                         return Ok(stream);
                     } else {
-                        log::warn!("Dropping connection from {}. Unexpected ip address.", in_addr);
+                        log::warn!(
+                            "Dropping connection from {}. Unexpected ip address.",
+                            in_addr
+                        );
                     }
                 }
                 Err(e) => {

@@ -1,8 +1,8 @@
-use crate::HostPort;
 use crate::CommandError;
+use crate::HostPort;
 
-use strum_macros::EnumMessage;
 use strum::EnumMessage;
+use strum_macros::EnumMessage;
 
 use anyhow::Error;
 
@@ -133,9 +133,11 @@ impl ToString for Reply {
         use Reply::*;
         let response = format!("{} {}", self.status_code(), self.get_message().unwrap());
         match self {
-            EnteringPassiveMode(host_port) => response.replace("{}", host_port.to_string().as_str()),
+            EnteringPassiveMode(host_port) => {
+                response.replace("{}", host_port.to_string().as_str())
+            }
             Created(pathname) => response.replace("{}", pathname),
-            _ => response
+            _ => response,
         }
     }
 }

@@ -2,7 +2,6 @@ use std::thread;
 use std::fs::File;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::{Path, PathBuf};
 use std::sync::Once;
 
 use ftp::FtpServer;
@@ -77,7 +76,7 @@ mod tests {
         env.create_empty_file("3");
         let mut ftp = FtpStream::connect(env.server_addr).unwrap();
         let mut list = ftp.nlst(None).unwrap();
-        ftp.quit();
+        ftp.quit().unwrap();
         list.sort();
         assert_eq!(list, vec!["1", "2", "3"]);
     }

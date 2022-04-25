@@ -1,25 +1,26 @@
-use crate::data_transfer_process::{DataTransferProcess, DataType, DataStructure, TransferMode, DataRepr};
+use crate::data_transfer_process::{
+    DataRepr, DataStructure, DataTransferProcess, DataType, TransferMode,
+};
 
-use std::net::{TcpStream, IpAddr, SocketAddr, Ipv4Addr};
 use std::io;
-use std::io::{Write, Read};
-use std::time::{Duration};
+use std::io::{Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::string::ToString;
+use std::time::Duration;
 
-use crate::Reply;
 use crate::Command;
 use crate::HostPort;
+use crate::Reply;
 
-use anyhow::{Result, Error};
+use anyhow::{Error, Result};
 
 pub struct CrlfStream {
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 const CRLF: &'static str = "\r\n";
 
 impl CrlfStream {
-
     pub fn new(stream: TcpStream) -> CrlfStream {
         CrlfStream { stream }
     }
@@ -33,11 +34,13 @@ impl CrlfStream {
     pub fn read_message(&mut self) -> Result<String> {
         let mut msg = String::new();
         loop {
-            let mut buf = [0 as u8; 8192];
+            let mut buf = [0 as u8; 1024];
             let n = self.stream.read(&mut buf)?;
             if n == 0 {
-                return Err(Error::new(io::Error::new(io::ErrorKind::ConnectionAborted,
-                                                      "Client quit unexpectedly.")));
+                return Err(Error::new(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "Client quit unexpectedly.",
+                )));
             }
             //TODO:
             //Even though it isn't statistically probable, I don't think that there is any
@@ -49,6 +52,9 @@ impl CrlfStream {
                 break;
             } else {
                 msg += &new_text;
+            }
+            if msg.len() > 1024 {
+                return Err(Error::msg("Client command was unexpectedly long"));
             }
         }
         Ok(msg)
@@ -63,7 +69,7 @@ pub struct Client {
     pub password: String,
     pub data_repr: DataRepr,
 
-    stream: CrlfStream
+    stream: CrlfStream,
 }
 
 impl Client {
@@ -71,7 +77,7 @@ impl Client {
         let addr = stream.peer_addr()?;
         let ip = match addr.ip() {
             IpAddr::V4(ip) => ip,
-            IpAddr::V6(_) => panic!("IPv6 is not supported")
+            IpAddr::V6(_) => panic!("IPv6 is not supported"),
         };
         stream.set_read_timeout(Some(Duration::from_secs(60)))?;
         stream.set_write_timeout(Some(Duration::from_secs(60)))?;
@@ -84,7 +90,7 @@ impl Client {
             password: "anonymous".to_owned(),
             data_repr: DataRepr::default(),
 
-            stream: CrlfStream::new(stream)
+            stream: CrlfStream::new(stream),
         })
     }
 
@@ -101,13 +107,11 @@ impl Client {
         let command = Command::parse_line(msg.as_str())?;
         Ok(command)
     }
-
 }
 
 pub struct ProtocolInterpreter<'a> {
-    dtp: &'a mut DataTransferProcess
+    dtp: &'a mut DataTransferProcess,
 }
-
 
 impl<'a> ProtocolInterpreter<'a> {
     pub fn new(dtp: &mut DataTransferProcess) -> ProtocolInterpreter {
@@ -119,7 +123,7 @@ impl<'a> ProtocolInterpreter<'a> {
         log::info!("Got a new connection from {}", client.ip);
         client.send_reply(Reply::ServiceReady)?;
 
-        while !client.has_quit  {
+        while !client.has_quit {
             let command = match client.read_command() {
                 Ok(command) => command,
                 Err(e) => {
@@ -141,8 +145,7 @@ impl<'a> ProtocolInterpreter<'a> {
         Ok(())
     }
 
-    fn dispatch_command(&mut self, command: Command, client: &mut Client) -> Result<Reply>
-    {
+    fn dispatch_command(&mut self, command: Command, client: &mut Client) -> Result<Reply> {
         match command {
             Command::Quit => Self::quit(client),
             Command::Port(host_port) => Self::port(client, host_port),
@@ -155,7 +158,7 @@ impl<'a> ProtocolInterpreter<'a> {
             Command::Retr(path) => self.retr(client, path),
             Command::Nlst(path) => self.nlist(client, path),
             Command::Stor(path) => self.stor(client, path),
-            _ => Ok(Reply::CommandOk)
+            _ => Ok(Reply::CommandOk),
         }
     }
 
@@ -169,14 +172,12 @@ impl<'a> ProtocolInterpreter<'a> {
         Ok(Reply::CommandOk)
     }
 
-    fn username(client: &mut Client, username: String) -> Result<Reply>
-    {
+    fn username(client: &mut Client, username: String) -> Result<Reply> {
         client.username = username;
         Ok(Reply::UsernameOk)
     }
 
-    fn password(client: &mut Client, pass: String) -> Result<Reply>
-    {
+    fn password(client: &mut Client, pass: String) -> Result<Reply> {
         client.password = pass;
         Ok(Reply::UserLoggedIn)
     }
@@ -200,9 +201,12 @@ impl<'a> ProtocolInterpreter<'a> {
         let addr = self.dtp.make_passive()?;
         let ip = match addr.ip() {
             IpAddr::V4(ip) => ip,
-            IpAddr::V6(_) => panic!("IPv6 is not supported")
+            IpAddr::V6(_) => panic!("IPv6 is not supported"),
         };
-        Ok(Reply::EnteringPassiveMode(HostPort { ip, port: addr.port() }))
+        Ok(Reply::EnteringPassiveMode(HostPort {
+            ip,
+            port: addr.port(),
+        }))
     }
 
     fn retr(&mut self, client: &mut Client, path: String) -> Result<Reply> {
@@ -224,13 +228,16 @@ impl<'a> ProtocolInterpreter<'a> {
     }
 
     fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {
-        if let Some(res) = self.dtp.connect(SocketAddr::new(IpAddr::V4(client.ip), client.data_port)) {
+        if let Some(res) = self
+            .dtp
+            .connect(SocketAddr::new(IpAddr::V4(client.ip), client.data_port))
+        {
             match res {
                 Ok(_) => {
                     client.send_reply(Reply::OpeningDataConnection)?;
                     Ok(())
                 }
-                Err(e) => Err(Error::new(e))
+                Err(e) => Err(Error::new(e)),
             }
         } else {
             Ok(())
@@ -247,9 +254,18 @@ mod tests {
     fn test_reply_creation() {
         let reply = Reply::CommandOk;
         assert_eq!(reply.to_string(), "200 Command okay");
-        let reply = Reply::EnteringPassiveMode(HostPort {ip: Ipv4Addr::LOCALHOST, port: 8888});
-        assert_eq!(reply.to_string(), "227 Entering passive mode (127,0,0,1,34,184)");
+        let reply = Reply::EnteringPassiveMode(HostPort {
+            ip: Ipv4Addr::LOCALHOST,
+            port: 8888,
+        });
+        assert_eq!(
+            reply.to_string(),
+            "227 Entering passive mode (127,0,0,1,34,184)"
+        );
         let reply = Reply::Created("very-important-directory".to_owned());
-        assert_eq!(reply.to_string(), "257 \"very-important-directory\" created")
+        assert_eq!(
+            reply.to_string(),
+            "257 \"very-important-directory\" created"
+        )
     }
 }
