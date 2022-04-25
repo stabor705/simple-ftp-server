@@ -98,7 +98,7 @@ impl DataTransferProcess {
 
     pub fn make_passive(&mut self) -> Result<SocketAddr> {
         let passive = Passive::new(Duration::from_secs(120))?;
-        let addr = passive.addr();
+        let addr = passive.addr()?;
         self.mode = Box::new(passive);
         log::info!("DTP started listening on port {}", addr);
         Ok(addr)
@@ -123,7 +123,6 @@ impl DataTransferProcess {
         }
     }
 
-    //TODO: Read on std::path. I should probably add some security measures such as ignoring wildcards.
     pub fn send_file(&mut self, path: &str) -> Result<()> {
         let mut client = self
             .client
@@ -214,9 +213,9 @@ impl Passive {
         })
     }
 
-    pub fn addr(&self) -> SocketAddr {
+    pub fn addr(&self) -> Result<SocketAddr> {
         //TODO: I don't know why this function can error. Gotta get rid of this unwrap someday.
-        self.listener.local_addr().unwrap()
+        self.listener.local_addr()
     }
 }
 
