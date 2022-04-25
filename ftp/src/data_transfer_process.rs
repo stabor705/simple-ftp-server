@@ -104,15 +104,17 @@ impl DataTransferProcess {
         Ok(addr)
     }
 
-    pub fn make_active(&mut self) {
-        self.mode = Box::new(Active {});
-    }
-
     pub fn connect(&mut self, addr: SocketAddr) -> Option<Result<()>> {
         match self.client {
-            Some(_) => None,
+            Some(_) => {
+                log::debug!("DataTrasferProcess::connect called when self.client is not None. It shouldn't happen!");
+                None
+            }
             None => match self.mode.connect(addr) {
                 Ok(client) => {
+                    if let Ok(addr) = client.peer_addr() {
+                        log::info!("DTP connected with {}", addr);
+                    }
                     self.client = Some(client);
                     Some(Ok(()))
                 }
@@ -121,13 +123,14 @@ impl DataTransferProcess {
         }
     }
 
+    //TODO: Read on std::path. I should probably add some security measures such as ignoring wildcards.
     pub fn send_file(&mut self, path: &str) -> Result<()> {
         let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = Path::new(&self.working_dir).join(path);
         let mut file = File::open(path)?;
         loop {
-            //TODO: How big should it be?
-            let mut buf = [0; 512];
+            //TODO: testing server by sending gigabytes of data to 1GB vps should be fun
+            let mut buf = [0; 8192];
             let n = file.read(&mut buf)?;
             if n == 0 { break; }
             client.write_all(&buf[0..n])?;
@@ -142,7 +145,7 @@ impl DataTransferProcess {
         let mut file = File::create(path)?;
         loop {
             //TODO: How big should it be?
-            let mut buf = [0; 512];
+            let mut buf = [0; 8192];
             let n = client.read(&mut buf)?;
             if n == 0 { break; }
             file.write_all(&buf[0..n])?;
@@ -151,7 +154,7 @@ impl DataTransferProcess {
         Ok(())
     }
 
-    pub fn send_dir_listing(&mut self, path: Option<String>) -> Result<()> {
+    pub fn send_dir_nlisting(&mut self, path: Option<String>) -> Result<()> {
         let mut client = self.client.as_ref().ok_or(Error::from(ErrorKind::NotConnected))?;
         let listing = self.get_dir_listing(path)?;
         for filename in listing {
@@ -212,10 +215,9 @@ impl Mode for Passive {
             match self.listener.accept() {
                 Ok((stream, in_addr)) => {
                     if in_addr.ip() == addr.ip() {
-                        log::info!("Accepting data connection from {}", in_addr);
                         return Ok(stream);
                     } else {
-                        log::info!("Dropping connection from {}. Incorrect ip address.", in_addr);
+                        log::warn!("Dropping connection from {}. Unexpected ip address.", in_addr);
                     }
                 }
                 Err(e) => {

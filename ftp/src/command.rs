@@ -1,5 +1,4 @@
 use std::fmt::{Display, Formatter};
-use std::fs::metadata;
 use std::str::FromStr;
 
 use crate::HostPort;

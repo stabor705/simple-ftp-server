@@ -224,7 +224,7 @@ impl<'a> ProtocolInterpreter<'a> {
 
     fn nlist(&mut self, client: &mut Client, path: Option<String>) -> Result<Reply> {
         self.connect_dtp(client)?;
-        self.dtp.send_dir_listing(path)?;
+        self.dtp.send_dir_nlisting(path)?;
         Ok(Reply::FileActionSuccessful)
     }
 
