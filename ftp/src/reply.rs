@@ -140,6 +140,7 @@ impl ToString for Reply {
     }
 }
 
+//TODO:
 impl From<Error> for Reply {
     fn from(e: Error) -> Self {
         use Reply::*;
