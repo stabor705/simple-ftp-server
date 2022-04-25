@@ -4,7 +4,6 @@ use std::net::{TcpStream, IpAddr, SocketAddr, Ipv4Addr};
 use std::io;
 use std::io::{Write, Read};
 use std::time::{Duration};
-use std::str::from_utf8;
 use std::string::ToString;
 
 use crate::Reply;
@@ -32,9 +31,7 @@ impl CrlfStream {
     }
 
     pub fn read_message(&mut self) -> Result<String> {
-        //TODO: is it a right way to do it?
-        //TODO: max message len
-        let mut message = String::new();
+        let mut msg = String::new();
         loop {
             let mut buf = [0 as u8; 8192];
             let n = self.stream.read(&mut buf)?;
@@ -43,22 +40,18 @@ impl CrlfStream {
                                                       "Client quit unexpectedly.")));
             }
             //TODO:
-            //There are absolutely no guarantees about fragmentation of data received.
-            //Thus, this approach is not correct. What if CR is send first, and then LF in other
-            //packet? Gonna fix is after moving to non_utf8 string
-            let new_text = from_utf8(&buf[0..n]).unwrap();
-            match new_text.find(CRLF) {
-                None => message.push_str(new_text),
-                Some(pos) => {
-                    message.push_str(&new_text[0..pos]);
-                    if pos != new_text.len() - 2 {
-                        log::warn!("A part of some command has been discarded: {}", new_text);
-                    }
-                    break;
-                }
+            //Even though it isn't statistically probable, I don't think that there is any
+            //guarantee about CRLF being sent in one pocket. It could be split into two pockets.
+            //I will ignore that for now, but this function will not be correct until I fix it.
+            let new_text = std::str::from_utf8(&buf[0..n])?; // ASCII should also be a valid utf8
+            if let Some(p) = new_text.find(CRLF) {
+                msg += &new_text[..p];
+                break;
+            } else {
+                msg += &new_text;
             }
         }
-        Ok(message)
+        Ok(msg)
     }
 }
 
