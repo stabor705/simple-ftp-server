@@ -7,8 +7,8 @@ use ftp_client::FtpStream;
 
 #[cfg(test)]
 mod tests {
-    use std::io::Read;
     use super::*;
+    use std::io::Read;
 
     #[test]
     fn test_connect_and_quit() {

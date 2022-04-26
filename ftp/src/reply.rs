@@ -157,7 +157,6 @@ impl From<Error> for Reply {
                 CommandError::InvalidCommand => SyntaxError,
             }
         } else if e.is::<std::io::Error>() {
-
             let err: std::io::Error = e.downcast().unwrap();
             match err.kind() {
                 ErrorKind::NotFound => FileUnavailable,

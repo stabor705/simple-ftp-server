@@ -8,9 +8,9 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::string::ToString;
 use std::time::Duration;
 
-use crate::{Command, CommandError};
 use crate::HostPort;
 use crate::Reply;
+use crate::{Command, CommandError};
 
 use anyhow::{Context, Error, Result};
 

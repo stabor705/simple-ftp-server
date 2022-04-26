@@ -1,32 +1,38 @@
 mod test_basic_commands;
 
-use std::thread;
 use std::fs::File;
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Once;
+use std::thread;
 
 use ftp::FtpServer;
 
-use tempdir::TempDir;
 use simplelog::*;
+use tempdir::TempDir;
 
 struct TestEnvironment {
     dir: TempDir,
-    server_addr: SocketAddr
+    server_addr: SocketAddr,
 }
 
 static INIT_LOG: Once = Once::new();
 
 fn initialize_logger() {
-    CombinedLogger::init(
-        vec![
-            TermLogger::new(LevelFilter::Warn, Config::default(),
-                            TerminalMode::Mixed, ColorChoice::Auto),
-            WriteLogger::new(LevelFilter::Debug, Config::default(),
-                             File::create("test.log").unwrap()),
-        ]
-    ).unwrap();
+    CombinedLogger::init(vec![
+        TermLogger::new(
+            LevelFilter::Warn,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        ),
+        WriteLogger::new(
+            LevelFilter::Debug,
+            Config::default(),
+            File::create("test.log").unwrap(),
+        ),
+    ])
+    .unwrap();
 }
 
 #[allow(dead_code)]
@@ -37,7 +43,7 @@ impl TestEnvironment {
         let config = ftp::Config {
             ip: Ipv4Addr::LOCALHOST,
             control_port: 0,
-            dir_root: dir.path().to_string_lossy().to_string()
+            dir_root: dir.path().to_string_lossy().to_string(),
         };
         let mut ftp_server = FtpServer::new(config).unwrap();
         let server_addr = ftp_server.addr().unwrap();
@@ -55,5 +61,4 @@ impl TestEnvironment {
         let mut file = File::create(self.dir.path().join(path)).unwrap();
         file.write_all(contents).unwrap();
     }
-
 }
