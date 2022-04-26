@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use crate::data_transfer_process::{DataFormat, DataStructure, DataType, TransferMode};
@@ -47,26 +46,15 @@ pub enum Command {
     Help,
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 pub enum CommandError {
+    #[error("missing required argument")]
     ArgMissing,
+    #[error("provided argument was invalid")]
     BadArg,
+    #[error("command not found")]
     InvalidCommand,
 }
-
-impl Display for CommandError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        use CommandError::*;
-
-        match *self {
-            ArgMissing => write!(f, "missing required argument"),
-            BadArg => write!(f, "provided argument was invalid"),
-            InvalidCommand => write!(f, "command not found"),
-        }
-    }
-}
-
-impl std::error::Error for CommandError {}
 
 impl Command {
     pub fn parse_line(s: &str) -> Result<Command, CommandError> {

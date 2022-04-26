@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
@@ -10,16 +10,9 @@ pub struct HostPort {
     pub port: u16,
 }
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
+#[error("Could not parse hostport address")]
 pub struct ParseHostPortError {}
-
-impl Display for ParseHostPortError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Could not parse hostport address")
-    }
-}
-
-impl std::error::Error for ParseHostPortError {}
 
 impl FromStr for HostPort {
     type Err = ParseHostPortError;
