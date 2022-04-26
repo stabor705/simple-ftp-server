@@ -159,6 +159,7 @@ impl<'a> ProtocolInterpreter<'a> {
             Command::Retr(path) => self.retr(client, path),
             Command::Nlst(path) => self.nlist(client, path),
             Command::Stor(path) => self.stor(client, path),
+            Command::Pwd => Ok(self.pwd()),
             _ => Ok(Reply::CommandOk),
         }
     }
@@ -226,6 +227,10 @@ impl<'a> ProtocolInterpreter<'a> {
         self.connect_dtp(client)?;
         self.dtp.send_dir_nlisting(path)?;
         Ok(Reply::FileActionSuccessful)
+    }
+
+    fn pwd(&self) -> Reply {
+        Reply::Created(self.dtp.get_working_dir())
     }
 
     fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {

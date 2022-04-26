@@ -61,4 +61,13 @@ mod tests {
         assert_eq!(contents, data);
         std::fs::remove_file(filepath).unwrap();
     }
+
+    #[test]
+    fn test_printing_working_directory() {
+        let env = TestEnvironment::new();
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        let working_dir = ftp.pwd().unwrap();
+        ftp.quit().unwrap();
+        assert_eq!(working_dir, env.dir.path().to_string_lossy().to_string());
+    }
 }

@@ -186,6 +186,10 @@ impl DataTransferProcess {
             .collect()?;
         Ok(listing)
     }
+
+    pub fn get_working_dir(&self) -> String {
+        self.working_dir.clone()
+    }
 }
 
 trait Mode {
