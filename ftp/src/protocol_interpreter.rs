@@ -8,11 +8,11 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::string::ToString;
 use std::time::Duration;
 
-use crate::Command;
+use crate::{Command, CommandError};
 use crate::HostPort;
 use crate::Reply;
 
-use anyhow::{Error, Result};
+use anyhow::{Context, Error, Result};
 
 pub struct CrlfStream {
     stream: TcpStream,
@@ -54,7 +54,8 @@ impl CrlfStream {
                 msg += &new_text;
             }
             if msg.len() > 1024 {
-                return Err(Error::msg("Client command was unexpectedly long"));
+                return Err(Error::new(CommandError::InvalidCommand))
+                    .with_context(|| format!("Client's command was way too long {}", msg));
             }
         }
         Ok(msg)

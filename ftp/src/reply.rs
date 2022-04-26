@@ -1,3 +1,5 @@
+use std::io::ErrorKind;
+
 use crate::CommandError;
 use crate::HostPort;
 
@@ -77,8 +79,8 @@ pub enum Reply {
     PageTypeUnknown,
     #[strum(message = "Requested file action aborted. Exceeded storage allocation")]
     ExceededStorageAllocation,
-    #[strum(message = "Requested action not taken. File name unknown")]
-    FileNameUnknown,
+    #[strum(message = "Requested action not taken. File name not allowed")]
+    FileNameNotAllowed,
 }
 
 impl Reply {
@@ -123,7 +125,7 @@ impl Reply {
             FileUnavailable => 550,
             PageTypeUnknown => 551,
             ExceededStorageAllocation => 552,
-            FileNameUnknown => 553,
+            FileNameNotAllowed => 553,
         }
     }
 }
@@ -148,12 +150,31 @@ impl From<Error> for Reply {
         use Reply::*;
 
         if e.is::<CommandError>() {
-            SyntaxErrorArg
+            let err: CommandError = e.downcast().unwrap();
+            match err {
+                CommandError::ArgMissing => SyntaxErrorArg,
+                CommandError::BadArg => BadParameter,
+                CommandError::InvalidCommand => SyntaxError,
+            }
         } else if e.is::<std::io::Error>() {
-            let error: std::io::Error = e.downcast().unwrap();
-            match error {
+
+            let err: std::io::Error = e.downcast().unwrap();
+            match err.kind() {
+                ErrorKind::NotFound => FileUnavailable,
+                ErrorKind::PermissionDenied => FileUnavailable,
+                ErrorKind::ConnectionRefused => ConnectionClosed,
+                ErrorKind::ConnectionReset => ConnectionClosed,
+                ErrorKind::ConnectionAborted => ConnectionClosed,
+                ErrorKind::AlreadyExists => FileNameNotAllowed,
+                ErrorKind::InvalidInput => SyntaxErrorArg,
+                //This one can mean requesting ascii type for binary data
+                ErrorKind::InvalidData => BadCommandSequence,
+                // I think this one is used when client doesn't send anything on data connection
+                ErrorKind::TimedOut => CantOpenDataConnection,
+                ErrorKind::WriteZero => LocalProcessingError,
+                ErrorKind::OutOfMemory => LocalProcessingError,
                 _ => {
-                    log::error!("Encountered unexpected io error {}", error);
+                    log::error!("Encountered unexpected io error {}", err);
                     LocalProcessingError
                 }
             }
