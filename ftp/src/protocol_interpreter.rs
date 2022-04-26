@@ -245,28 +245,3 @@ impl<'a> ProtocolInterpreter<'a> {
         }
     }
 }
-
-#[allow(unused_imports)] // For some reason compiler thinks super::* is not use
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_reply_creation() {
-        let reply = Reply::CommandOk;
-        assert_eq!(reply.to_string(), "200 Command okay");
-        let reply = Reply::EnteringPassiveMode(HostPort {
-            ip: Ipv4Addr::LOCALHOST,
-            port: 8888,
-        });
-        assert_eq!(
-            reply.to_string(),
-            "227 Entering passive mode (127,0,0,1,34,184)"
-        );
-        let reply = Reply::Created("very-important-directory".to_owned());
-        assert_eq!(
-            reply.to_string(),
-            "257 \"very-important-directory\" created"
-        )
-    }
-}
