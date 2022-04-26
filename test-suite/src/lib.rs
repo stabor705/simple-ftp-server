@@ -1,3 +1,5 @@
+mod test_basic_commands;
+
 use std::thread;
 use std::fs::File;
 use std::io::Write;
@@ -8,7 +10,6 @@ use ftp::FtpServer;
 
 use tempdir::TempDir;
 use simplelog::*;
-use ftp_client::FtpStream;
 
 struct TestEnvironment {
     dir: TempDir,
@@ -55,42 +56,4 @@ impl TestEnvironment {
         file.write_all(contents).unwrap();
     }
 
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_connect_and_quit() {
-        let env = TestEnvironment::new();
-        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
-        ftp.quit().unwrap();
-    }
-
-    #[test]
-    fn test_nlist() {
-        let env = TestEnvironment::new();
-        env.create_empty_file("1");
-        env.create_empty_file("2");
-        env.create_empty_file("3");
-        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
-        let mut list = ftp.nlst(None).unwrap();
-        ftp.quit().unwrap();
-        list.sort();
-        assert_eq!(list, vec!["1", "2", "3"]);
-    }
-
-    #[test]
-    fn test_file_receiving() {
-        let env = TestEnvironment::new();
-        let filename = "a very important file with a very long name lol.txt";
-        let text = "Hello World!";
-        env.create_file(filename, text.as_bytes());
-
-        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
-        let cursor = ftp.simple_retr(filename).unwrap();
-        assert_eq!(cursor.into_inner().as_slice(), text.as_bytes());
-        ftp.quit().unwrap();
-    }
 }
