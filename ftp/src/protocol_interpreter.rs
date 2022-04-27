@@ -12,6 +12,7 @@ use crate::HostPort;
 use crate::Reply;
 use crate::{Command, CommandError};
 
+use crate::Reply::Created;
 use anyhow::{Context, Error, Result};
 
 pub struct CrlfStream {
@@ -161,6 +162,7 @@ impl<'a> ProtocolInterpreter<'a> {
             Command::Stor(path) => self.stor(client, path),
             Command::Pwd => Ok(self.pwd()),
             Command::Cwd(path) => self.cwd(&path),
+            Command::Mkd(path) => self.mkdir(path),
             _ => Ok(Reply::CommandOk),
         }
     }
@@ -237,6 +239,11 @@ impl<'a> ProtocolInterpreter<'a> {
     fn cwd(&mut self, path: &str) -> Result<Reply> {
         self.dtp.change_working_dir(path)?;
         Ok(Reply::FileActionOk)
+    }
+
+    fn mkdir(&self, path: String) -> Result<Reply> {
+        self.dtp.make_dir(&path)?;
+        Ok(Created(path))
     }
 
     fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {

@@ -1,4 +1,4 @@
-use std::fs::{read_dir, File};
+use std::fs::{create_dir, read_dir, File};
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -162,6 +162,8 @@ impl DataTransferProcess {
         Ok(())
     }
 
+    //TODO: Handle relative and abolute paths
+
     pub fn send_dir_nlisting(&mut self, path: Option<String>) -> Result<()> {
         let mut client = self
             .client
@@ -197,6 +199,11 @@ impl DataTransferProcess {
             return Err(Error::from(ErrorKind::NotFound));
         }
         self.working_dir = new_path;
+        Ok(())
+    }
+
+    pub fn make_dir(&self, path: &str) -> Result<()> {
+        create_dir(self.working_dir.join(path))?;
         Ok(())
     }
 }

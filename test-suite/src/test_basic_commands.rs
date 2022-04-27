@@ -75,12 +75,22 @@ mod tests {
     #[test]
     fn test_changing_working_directory() {
         let env = TestEnvironment::new();
-        let filename = "a very important directory";
-        env.create_dir(filename);
+        let dirname = "a very important directory";
+        env.create_dir(dirname);
         let mut ftp = FtpStream::connect(env.server_addr).unwrap();
-        ftp.cwd(filename).unwrap();
+        ftp.cwd(dirname).unwrap();
         let path = PathBuf::from(ftp.pwd().unwrap());
         ftp.quit().unwrap();
-        assert!(path.ends_with(filename));
+        assert!(path.ends_with(dirname));
+    }
+
+    #[test]
+    fn test_creating_directory() {
+        let env = TestEnvironment::new();
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        let dirname = "yet another very important directory";
+        ftp.mkdir(dirname).unwrap();
+        ftp.quit().unwrap();
+        assert!(env.dir.path().join(dirname).exists());
     }
 }
