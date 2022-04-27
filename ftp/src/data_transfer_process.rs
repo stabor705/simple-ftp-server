@@ -1,7 +1,7 @@
 use std::fs::{read_dir, File};
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::Path;
+use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -82,7 +82,7 @@ pub struct DataRepr {
 }
 
 pub struct DataTransferProcess {
-    working_dir: String,
+    working_dir: PathBuf,
     mode: Box<dyn Mode + Sync + Send>,
     client: Option<TcpStream>,
 }
@@ -90,7 +90,7 @@ pub struct DataTransferProcess {
 impl DataTransferProcess {
     pub fn new(root: String) -> DataTransferProcess {
         DataTransferProcess {
-            working_dir: root,
+            working_dir: PathBuf::from(root),
             mode: Box::new(Active {}),
             client: None,
         }
@@ -128,7 +128,7 @@ impl DataTransferProcess {
             .client
             .as_ref()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
-        let path = Path::new(&self.working_dir).join(path);
+        let path = self.working_dir.join(path);
         let mut file = File::open(path)?;
         loop {
             //TODO: testing server by sending gigabytes of data to 1GB vps should be fun
@@ -148,7 +148,7 @@ impl DataTransferProcess {
             .client
             .as_ref()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
-        let path = Path::new(&self.working_dir).join(path);
+        let path = self.working_dir.join(path);
         let mut file = File::create(path)?;
         loop {
             let mut buf = [0; 8192];
@@ -178,8 +178,8 @@ impl DataTransferProcess {
 
     fn get_dir_listing(&self, path: Option<String>) -> Result<Vec<String>> {
         let dir = match path {
-            Some(path) => Path::new(&self.working_dir).join(path),
-            None => Path::new(&self.working_dir).to_path_buf(),
+            Some(path) => self.working_dir.join(path),
+            None => self.working_dir.clone(),
         };
         let listing = fallible_iterator::convert(read_dir(dir)?)
             .map(|entry| Ok(entry.file_name().to_string_lossy().into_owned()))
@@ -188,7 +188,16 @@ impl DataTransferProcess {
     }
 
     pub fn get_working_dir(&self) -> String {
-        self.working_dir.clone()
+        self.working_dir.to_string_lossy().to_string()
+    }
+
+    pub fn change_working_dir(&mut self, path: &str) -> Result<()> {
+        let new_path = self.working_dir.join(path);
+        if !new_path.exists() {
+            return Err(Error::from(ErrorKind::NotFound));
+        }
+        self.working_dir = new_path;
+        Ok(())
     }
 }
 

@@ -1,6 +1,6 @@
 mod test_basic_commands;
 
-use std::fs::File;
+use std::fs::{create_dir, File};
 use std::io::Write;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Once;
@@ -60,5 +60,9 @@ impl TestEnvironment {
     pub fn create_file(&self, path: &str, contents: &[u8]) {
         let mut file = File::create(self.dir.path().join(path)).unwrap();
         file.write_all(contents).unwrap();
+    }
+
+    pub fn create_dir(&self, path: &str) {
+        create_dir(self.dir.path().join(path)).unwrap();
     }
 }

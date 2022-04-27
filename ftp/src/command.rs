@@ -21,10 +21,11 @@ pub enum Command {
     Pasv,
     Nlst(Option<String>),
     Stor(String),
+    Pwd,
+    Cwd(String),
 
     // Not implemented
     Acct,
-    Cwd,
     Cdup,
     Smnt,
     Rein,
@@ -38,7 +39,6 @@ pub enum Command {
     Dele,
     Rmd,
     Mkd,
-    Pwd,
     List,
     Site,
     Syst,
@@ -143,6 +143,10 @@ impl Command {
             Nlst(_) => {
                 let path = arg.and_then(|x| Some(x.to_owned()));
                 Nlst(path)
+            }
+            Cwd(_) => {
+                let path = arg.ok_or(CommandError::ArgMissing)?;
+                Cwd(path.to_owned())
             }
             _ => command,
         };

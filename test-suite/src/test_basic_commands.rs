@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 
 use crate::TestEnvironment;
 
@@ -69,5 +70,17 @@ mod tests {
         let working_dir = ftp.pwd().unwrap();
         ftp.quit().unwrap();
         assert_eq!(working_dir, env.dir.path().to_string_lossy().to_string());
+    }
+
+    #[test]
+    fn test_changing_working_directory() {
+        let env = TestEnvironment::new();
+        let filename = "a very important directory";
+        env.create_dir(filename);
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        ftp.cwd(filename).unwrap();
+        let path = PathBuf::from(ftp.pwd().unwrap());
+        ftp.quit().unwrap();
+        assert!(path.ends_with(filename));
     }
 }
