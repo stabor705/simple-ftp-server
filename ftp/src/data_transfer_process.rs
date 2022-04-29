@@ -126,7 +126,7 @@ impl DataTransferProcess {
     pub fn send_file(&mut self, path: &str) -> Result<()> {
         let mut client = self
             .client
-            .as_ref()
+            .take()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = self.working_dir.join(path);
         let mut file = File::open(path)?;
@@ -139,14 +139,13 @@ impl DataTransferProcess {
             }
             client.write_all(&buf[0..n])?;
         }
-        self.client = None;
         Ok(())
     }
 
     pub fn receive_file(&mut self, path: &str) -> Result<()> {
         let mut client = self
             .client
-            .as_ref()
+            .take()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = self.working_dir.join(path);
         let mut file = File::create(path)?;
@@ -158,7 +157,6 @@ impl DataTransferProcess {
             }
             file.write_all(&buf[0..n])?;
         }
-        self.client = None;
         Ok(())
     }
 
@@ -167,14 +165,13 @@ impl DataTransferProcess {
     pub fn send_dir_nlisting(&mut self, path: Option<String>) -> Result<()> {
         let mut client = self
             .client
-            .as_ref()
+            .take()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
         let listing = self.get_dir_listing(path)?;
         for filename in listing {
             client.write_all(filename.as_bytes())?;
             client.write_all("\r\n".as_bytes())?;
         }
-        self.client = None;
         Ok(())
     }
 
