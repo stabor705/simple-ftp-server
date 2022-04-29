@@ -1,8 +1,9 @@
 mod test_basic_commands;
 
 use std::fs::{create_dir, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::Path;
 use std::sync::Once;
 use std::thread;
 
@@ -53,16 +54,23 @@ impl TestEnvironment {
         TestEnvironment { dir, server_addr }
     }
 
-    pub fn create_empty_file(&self, path: &str) {
+    pub fn create_empty_file<P: AsRef<Path>>(&self, path: P) {
         File::create(self.dir.path().join(path)).unwrap();
     }
 
-    pub fn create_file(&self, path: &str, contents: &[u8]) {
+    pub fn create_file<P: AsRef<Path>>(&self, path: P, contents: &[u8]) {
         let mut file = File::create(self.dir.path().join(path)).unwrap();
         file.write_all(contents).unwrap();
     }
 
-    pub fn create_dir(&self, path: &str) {
+    pub fn read_file<P: AsRef<Path>>(&self, path: P) -> Vec<u8> {
+        let mut file = File::open(self.dir.path().join(path)).unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        buf
+    }
+
+    pub fn create_dir<P: AsRef<Path>>(&self, path: P) {
         create_dir(self.dir.path().join(path)).unwrap();
     }
 }
