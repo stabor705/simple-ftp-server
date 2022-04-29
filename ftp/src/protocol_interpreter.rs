@@ -137,7 +137,7 @@ impl<'a> ProtocolInterpreter<'a> {
             let reply = match self.dispatch_command(command, &mut client) {
                 Ok(reply) => reply,
                 Err(e) => {
-                    log::warn!("{}", e);
+                    log::warn!("Client's request could not be honored: {}", e);
                     e.into()
                 }
             };
