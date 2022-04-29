@@ -163,6 +163,7 @@ impl<'a> ProtocolInterpreter<'a> {
             Command::Pwd => Ok(self.pwd()),
             Command::Cwd(path) => self.cwd(&path),
             Command::Mkd(path) => self.mkdir(path),
+            Command::Dele(path) => self.dele(&path),
             _ => Ok(Reply::CommandOk),
         }
     }
@@ -244,6 +245,11 @@ impl<'a> ProtocolInterpreter<'a> {
     fn mkdir(&self, path: String) -> Result<Reply> {
         self.dtp.make_dir(&path)?;
         Ok(Created(path))
+    }
+
+    fn dele(&self, path: &str) -> Result<Reply> {
+        self.dtp.delete_file(path)?;
+        Ok(Reply::FileActionOk)
     }
 
     fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {

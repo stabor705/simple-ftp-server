@@ -24,6 +24,7 @@ pub enum Command {
     Pwd,
     Cwd(String),
     Mkd(String),
+    Dele(String),
 
     // Not implemented
     Acct,
@@ -37,7 +38,6 @@ pub enum Command {
     Rnfr,
     Rnto,
     Abor,
-    Dele,
     Rmd,
     List,
     Site,
@@ -151,6 +151,10 @@ impl Command {
             Mkd(_) => {
                 let path = arg.ok_or(CommandError::ArgMissing)?;
                 Mkd(path.to_owned())
+            }
+            Dele(_) => {
+                let path = arg.ok_or(CommandError::ArgMissing)?;
+                Dele(path.to_owned())
             }
             _ => command,
         };

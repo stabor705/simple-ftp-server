@@ -166,4 +166,15 @@ mod tests {
         ftp.quit().unwrap();
         assert!(env.dir.path().join(dirname).exists());
     }
+
+    #[test]
+    fn test_simple_file_deletion() {
+        let env = TestEnvironment::new();
+        let filename = "file to delete.json";
+        env.create_empty_file(filename);
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        ftp.rm(filename).unwrap();
+        ftp.quit().unwrap();
+        assert!(!env.file_exists(filename))
+    }
 }

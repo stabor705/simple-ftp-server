@@ -73,4 +73,8 @@ impl TestEnvironment {
     pub fn create_dir<P: AsRef<Path>>(&self, path: P) {
         create_dir(self.dir.path().join(path)).unwrap();
     }
+
+    pub fn file_exists<P: AsRef<Path>>(&self, path: P) -> bool {
+        self.dir.path().join(path).exists()
+    }
 }
