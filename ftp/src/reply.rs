@@ -30,7 +30,7 @@ pub enum Reply {
     #[strum(message = "Data connection open; no transfer in progress")]
     DataConnectionOpen,
     #[strum(message = "Closing data connection. Requested file action successful")]
-    FileActionSuccessful,
+    ClosingDataConnection,
     #[strum(message = "Entering passive mode ({})")]
     EnteringPassiveMode(HostPort),
     #[strum(message = "User logged in, proceed")]
@@ -98,7 +98,7 @@ impl Reply {
             ServiceReady => 220,
             ServiceClosing => 221,
             DataConnectionOpen => 225,
-            FileActionSuccessful => 226,
+            ClosingDataConnection => 226,
             EnteringPassiveMode(_) => 227,
             UserLoggedIn => 230,
             FileActionOk => 250,

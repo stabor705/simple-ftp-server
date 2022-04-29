@@ -1,4 +1,4 @@
-use std::fs::{create_dir, read_dir, remove_file, File};
+use std::fs::*;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -207,6 +207,17 @@ impl DataTransferProcess {
     pub fn delete_file(&self, path: &str) -> Result<()> {
         remove_file(self.working_dir.join(path))?;
         Ok(())
+    }
+
+    pub fn rename(&self, from: &str, to: &str) -> Result<()> {
+        let from = self.working_dir.join(from);
+        let to = self.working_dir.join(to);
+        rename(from, to)?;
+        Ok(())
+    }
+
+    pub fn file_exists(&self, path: &str) -> bool {
+        self.working_dir.join(path).exists()
     }
 }
 

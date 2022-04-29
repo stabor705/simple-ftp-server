@@ -25,6 +25,8 @@ pub enum Command {
     Cwd(String),
     Mkd(String),
     Dele(String),
+    Rnfr(String),
+    Rnto(String),
 
     // Not implemented
     Acct,
@@ -35,8 +37,6 @@ pub enum Command {
     Appe,
     Allo,
     Rest,
-    Rnfr,
-    Rnto,
     Abor,
     Rmd,
     List,
@@ -155,6 +155,14 @@ impl Command {
             Dele(_) => {
                 let path = arg.ok_or(CommandError::ArgMissing)?;
                 Dele(path.to_owned())
+            }
+            Rnfr(_) => {
+                let path = arg.ok_or(CommandError::ArgMissing)?;
+                Rnfr(path.to_owned())
+            }
+            Rnto(_) => {
+                let path = arg.ok_or(CommandError::ArgMissing)?;
+                Rnto(path.to_owned())
             }
             _ => command,
         };

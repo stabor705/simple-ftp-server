@@ -125,7 +125,6 @@ mod tests {
         for (received, expected) in zip(data.iter(), contents.iter()) {
             assert_eq!(&from_utf8(&received).unwrap(), expected);
         }
-
     }
 
     #[test]
@@ -176,5 +175,27 @@ mod tests {
         ftp.rm(filename).unwrap();
         ftp.quit().unwrap();
         assert!(!env.file_exists(filename))
+    }
+
+    #[test]
+    fn test_file_renaming() {
+        let env = TestEnvironment::new();
+        let filename = "file to rename.doc";
+        let new_filename = "file renamed.txt";
+        env.create_empty_file(filename);
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        ftp.rename(filename, new_filename).unwrap();
+        ftp.quit().unwrap();
+        assert!(!env.file_exists(filename));
+        assert!(env.file_exists(new_filename));
+    }
+
+    #[test]
+    fn test_rename_nonexistent_file() {
+        let env = TestEnvironment::new();
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        let result = ftp.rename("This file", "does not exist").is_err();
+        ftp.quit().unwrap();
+        assert!(result);
     }
 }

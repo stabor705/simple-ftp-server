@@ -70,6 +70,7 @@ pub struct Client {
     pub username: String,
     pub password: String,
     pub data_repr: DataRepr,
+    pub renaming_from: Option<String>,
 
     stream: CrlfStream,
 }
@@ -91,6 +92,7 @@ impl Client {
             username: "anonymous".to_owned(),
             password: "anonymous".to_owned(),
             data_repr: DataRepr::default(),
+            renaming_from: None,
 
             stream: CrlfStream::new(stream),
         })
@@ -164,6 +166,8 @@ impl<'a> ProtocolInterpreter<'a> {
             Command::Cwd(path) => self.cwd(&path),
             Command::Mkd(path) => self.mkdir(path),
             Command::Dele(path) => self.dele(&path),
+            Command::Rnfr(from) => self.rename_from(client, from),
+            Command::Rnto(to) => self.rename_to(client, &to),
             _ => Ok(Reply::CommandOk),
         }
     }
@@ -218,19 +222,19 @@ impl<'a> ProtocolInterpreter<'a> {
     fn retr(&mut self, client: &mut Client, path: String) -> Result<Reply> {
         self.connect_dtp(client)?;
         self.dtp.send_file(path.as_str())?;
-        Ok(Reply::FileActionSuccessful)
+        Ok(Reply::ClosingDataConnection)
     }
 
     fn stor(&mut self, client: &mut Client, path: String) -> Result<Reply> {
         self.connect_dtp(client)?;
         self.dtp.receive_file(path.as_str())?;
-        Ok(Reply::FileActionSuccessful)
+        Ok(Reply::ClosingDataConnection)
     }
 
     fn nlist(&mut self, client: &mut Client, path: Option<String>) -> Result<Reply> {
         self.connect_dtp(client)?;
         self.dtp.send_dir_nlisting(path)?;
-        Ok(Reply::FileActionSuccessful)
+        Ok(Reply::ClosingDataConnection)
     }
 
     fn pwd(&self) -> Reply {
@@ -250,6 +254,25 @@ impl<'a> ProtocolInterpreter<'a> {
     fn dele(&self, path: &str) -> Result<Reply> {
         self.dtp.delete_file(path)?;
         Ok(Reply::FileActionOk)
+    }
+
+    fn rename_from(&self, client: &mut Client, from: String) -> Result<Reply> {
+        if !self.dtp.file_exists(&from) {
+            return Err(Error::new(std::io::Error::from(std::io::ErrorKind::NotFound)));
+        }
+        client.renaming_from = Some(from);
+        Ok(Reply::PendingFurtherInformation)
+    }
+
+    fn rename_to(&self, client: &mut Client, to: &str) -> Result<Reply> {
+        match client.renaming_from.take() {
+            //TODO: Create custom error type to handle this case correctly
+            None => Ok(Reply::BadCommandSequence),
+            Some(from) => {
+                self.dtp.rename(&from, to)?;
+                Ok(Reply::FileActionOk)
+            }
+        }
     }
 
     fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {
