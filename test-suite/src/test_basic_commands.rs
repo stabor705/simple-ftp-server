@@ -178,6 +178,28 @@ mod tests {
     }
 
     #[test]
+    fn test_dots_handling_with_abosolute_path_argument() {
+        let env = TestEnvironment::new();
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        assert!(ftp.cwd("/etc").is_err());
+        ftp.quit().unwrap();
+
+    }
+
+    #[test]
+    fn test_cdup() {
+        let env = TestEnvironment::new();
+        let dir = "a very nice directory";
+        env.create_dir(dir);
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        ftp.cwd(dir).unwrap();
+        ftp.cdup().unwrap();
+        assert_eq!(ftp.pwd().unwrap(), "/");
+        ftp.quit().unwrap();
+
+    }
+
+    #[test]
     fn test_creating_directory() {
         let env = TestEnvironment::new();
         let mut ftp = FtpStream::connect(env.server_addr).unwrap();

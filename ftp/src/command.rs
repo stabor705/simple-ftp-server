@@ -27,10 +27,10 @@ pub enum Command {
     Dele(String),
     Rnfr(String),
     Rnto(String),
+    Cdup,
 
     // Not implemented
     Acct,
-    Cdup,
     Smnt,
     Rein,
     Stou,

@@ -168,6 +168,7 @@ impl<'a> ProtocolInterpreter<'a> {
             Command::Dele(path) => self.dele(&path),
             Command::Rnfr(from) => self.rename_from(client, from),
             Command::Rnto(to) => self.rename_to(client, &to),
+            Command::Cdup => self.cdup(),
             _ => Ok(Reply::CommandOk),
         }
     }
@@ -275,6 +276,11 @@ impl<'a> ProtocolInterpreter<'a> {
                 Ok(Reply::FileActionOk)
             }
         }
+    }
+
+    fn cdup(&mut self) -> Result<Reply> {
+        self.dtp.change_working_dir("..")?;
+        Ok(Reply::CommandOk)
     }
 
     fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {

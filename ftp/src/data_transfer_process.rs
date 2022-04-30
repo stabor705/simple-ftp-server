@@ -139,6 +139,8 @@ impl DataTransferProcess {
         // joining with root directory path.
         // TODO: It can be done properly by creating needed functions
         // instead of relying on libraries
+        // TODO: It probably needs to return error when trying to go out of
+        // root ("/.." for instance) instead of silently not changing state
         let rhs: PathBuf = self
             .working_dir
             .join(rel_path)
