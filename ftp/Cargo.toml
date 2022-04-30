@@ -7,9 +7,9 @@ edition = "2021"
 
 [dependencies]
 log = "0.4.16"
-simplelog = "0.11.2"
 strum = "0.24"
 strum_macros = "0.24"
 fallible-iterator = "0.2.0"
 anyhow = "1.0.56"
 thiserror = "1.0.30"
+path-dedot = "3.0.17"

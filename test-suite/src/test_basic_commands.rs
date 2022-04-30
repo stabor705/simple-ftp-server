@@ -133,7 +133,7 @@ mod tests {
         let mut ftp = FtpStream::connect(env.server_addr).unwrap();
         let working_dir = ftp.pwd().unwrap();
         ftp.quit().unwrap();
-        assert_eq!(working_dir, env.dir.path().to_string_lossy().to_string());
+        assert_eq!(working_dir, "/");
     }
 
     #[test]
@@ -153,6 +153,27 @@ mod tests {
         let env = TestEnvironment::new();
         let mut ftp = FtpStream::connect(env.server_addr).unwrap();
         assert!(ftp.cwd("This directory does not exist").is_err());
+        ftp.quit().unwrap();
+    }
+
+    #[test]
+    fn test_dots_handling() {
+        let env = TestEnvironment::new();
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        ftp.cwd("../../../..").unwrap();
+        assert_eq!(ftp.pwd().unwrap(), "/");
+        ftp.quit().unwrap();
+    }
+
+    #[test]
+    fn test_dots_handling2() {
+        let env = TestEnvironment::new();
+        let dir = "a very nice directory";
+        env.create_dir(dir);
+        let mut ftp = FtpStream::connect(env.server_addr).unwrap();
+        ftp.cwd(dir).unwrap();
+        ftp.cwd("./..").unwrap();
+        assert_eq!(ftp.pwd().unwrap(), "/");
         ftp.quit().unwrap();
     }
 

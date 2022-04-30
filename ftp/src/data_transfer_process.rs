@@ -1,11 +1,12 @@
 use std::fs::*;
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use fallible_iterator::FallibleIterator;
+use path_dedot::ParseDot;
 use strum_macros::{Display, EnumString};
 
 #[derive(Display, EnumString)]
@@ -82,6 +83,7 @@ pub struct DataRepr {
 }
 
 pub struct DataTransferProcess {
+    root: PathBuf,
     working_dir: PathBuf,
     mode: Box<dyn Mode + Sync + Send>,
     client: Option<TcpStream>,
@@ -90,7 +92,8 @@ pub struct DataTransferProcess {
 impl DataTransferProcess {
     pub fn new(root: String) -> DataTransferProcess {
         DataTransferProcess {
-            working_dir: PathBuf::from(root),
+            root: PathBuf::from(root),
+            working_dir: PathBuf::from("/"),
             mode: Box::new(Active {}),
             client: None,
         }
@@ -123,12 +126,35 @@ impl DataTransferProcess {
         }
     }
 
+    fn build_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<PathBuf> {
+        if rel_path.as_ref().is_absolute() {
+            return Err(Error::from(ErrorKind::InvalidInput));
+        }
+        // Unfortunately this workaround is needed, since path_dedot
+        // requires absolute path in order to not go up in directory hierarchy
+        // beyond root directory, but, on the other hand, Path::join used with
+        // absolute path as argument will just return the argument.
+        // Thus, we have to use path with "/" at beginning with working_dir
+        // in order to path_dedot work correctly, but get rid of it when
+        // joining with root directory path.
+        // TODO: It can be done properly by creating needed functions
+        // instead of relying on libraries
+        let rhs: PathBuf = self
+            .working_dir
+            .join(rel_path)
+            .parse_dot()?
+            .iter()
+            .skip(1)
+            .collect();
+        Ok(self.root.join(rhs))
+    }
+
     pub fn send_file(&mut self, path: &str) -> Result<()> {
         let mut client = self
             .client
             .take()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
-        let path = self.working_dir.join(path);
+        let path = self.build_path(path)?;
         let mut file = File::open(path)?;
         loop {
             //TODO: testing server by sending gigabytes of data to 1GB vps should be fun
@@ -147,7 +173,7 @@ impl DataTransferProcess {
             .client
             .take()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
-        let path = self.working_dir.join(path);
+        let path = self.build_path(path)?;
         let mut file = File::create(path)?;
         loop {
             let mut buf = [0; 8192];
@@ -160,14 +186,12 @@ impl DataTransferProcess {
         Ok(())
     }
 
-    //TODO: Handle relative and abolute paths
-
     pub fn send_dir_nlisting(&mut self, path: Option<String>) -> Result<()> {
         let mut client = self
             .client
             .take()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
-        let listing = self.get_dir_listing(path)?;
+        let listing = self.get_dir_listing(&path.unwrap_or("".to_string()))?;
         for filename in listing {
             client.write_all(filename.as_bytes())?;
             client.write_all("\r\n".as_bytes())?;
@@ -175,11 +199,8 @@ impl DataTransferProcess {
         Ok(())
     }
 
-    fn get_dir_listing(&self, path: Option<String>) -> Result<Vec<String>> {
-        let dir = match path {
-            Some(path) => self.working_dir.join(path),
-            None => self.working_dir.clone(),
-        };
+    fn get_dir_listing(&self, path: &str) -> Result<Vec<String>> {
+        let dir = self.build_path(path)?;
         let listing = fallible_iterator::convert(read_dir(dir)?)
             .map(|entry| Ok(entry.file_name().to_string_lossy().into_owned()))
             .collect()?;
@@ -191,33 +212,33 @@ impl DataTransferProcess {
     }
 
     pub fn change_working_dir(&mut self, path: &str) -> Result<()> {
-        let new_path = self.working_dir.join(path);
+        let new_path = self.build_path(path)?;
         if !new_path.exists() {
             return Err(Error::from(ErrorKind::NotFound));
         }
-        self.working_dir = new_path;
+        self.working_dir = self.working_dir.join(path).parse_dot()?.into_owned();
         Ok(())
     }
 
     pub fn make_dir(&self, path: &str) -> Result<()> {
-        create_dir(self.working_dir.join(path))?;
+        create_dir(self.build_path(path)?)?;
         Ok(())
     }
 
     pub fn delete_file(&self, path: &str) -> Result<()> {
-        remove_file(self.working_dir.join(path))?;
+        remove_file(self.build_path(path)?)?;
         Ok(())
     }
 
     pub fn rename(&self, from: &str, to: &str) -> Result<()> {
-        let from = self.working_dir.join(from);
-        let to = self.working_dir.join(to);
+        let from = self.build_path(from)?;
+        let to = self.build_path(to)?;
         rename(from, to)?;
         Ok(())
     }
 
-    pub fn file_exists(&self, path: &str) -> bool {
-        self.working_dir.join(path).exists()
+    pub fn file_exists(&self, path: &str) -> Result<bool> {
+        Ok(self.build_path(path)?.exists())
     }
 }
 

@@ -257,8 +257,10 @@ impl<'a> ProtocolInterpreter<'a> {
     }
 
     fn rename_from(&self, client: &mut Client, from: String) -> Result<Reply> {
-        if !self.dtp.file_exists(&from) {
-            return Err(Error::new(std::io::Error::from(std::io::ErrorKind::NotFound)));
+        if !self.dtp.file_exists(&from)? {
+            return Err(Error::new(std::io::Error::from(
+                std::io::ErrorKind::NotFound,
+            )));
         }
         client.renaming_from = Some(from);
         Ok(Reply::PendingFurtherInformation)
