@@ -10,6 +10,12 @@ pub struct HostPort {
     pub port: u16,
 }
 
+impl HostPort {
+    pub fn new(ip: Ipv4Addr, port: u16) -> HostPort {
+        HostPort { ip, port }
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 #[error("Could not parse hostport address")]
 pub struct ParseHostPortError {}

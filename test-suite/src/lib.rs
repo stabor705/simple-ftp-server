@@ -1,8 +1,11 @@
+#[cfg(test)]
+mod test_authorization;
+#[cfg(test)]
 mod test_basic_commands;
 
 use std::fs::{create_dir, File};
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Once;
 use std::thread;
@@ -41,12 +44,14 @@ impl TestEnvironment {
     pub fn new() -> TestEnvironment {
         INIT_LOG.call_once(initialize_logger);
         let dir = TempDir::new("ftp-test").unwrap();
-        let config = ftp::Config {
-            ip: Ipv4Addr::LOCALHOST,
-            control_port: 0,
-            dir_root: dir.path().to_string_lossy().to_string(),
-        };
-        let mut ftp_server = FtpServer::new(config).unwrap();
+        let mut ftp_server = FtpServer::builder()
+            .add_user(
+                "test".to_owned(),
+                "test".to_owned(),
+                dir.path().to_string_lossy().to_string(),
+            )
+            .build()
+            .unwrap();
         let server_addr = ftp_server.addr().unwrap();
         thread::spawn(move || {
             ftp_server.do_one_listen().unwrap();

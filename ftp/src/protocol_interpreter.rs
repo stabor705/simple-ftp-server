@@ -1,18 +1,14 @@
-use crate::data_transfer_process::{
-    DataRepr, DataStructure, DataTransferProcess, DataType, TransferMode,
-};
-
 use std::io;
 use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{IpAddr, TcpStream};
 use std::string::ToString;
 use std::time::Duration;
 
-use crate::HostPort;
+use crate::user::*;
+use crate::Client;
 use crate::Reply;
 use crate::{Command, CommandError};
 
-use crate::Reply::Created;
 use anyhow::{Context, Error, Result};
 
 pub struct CrlfStream {
@@ -63,240 +59,161 @@ impl CrlfStream {
     }
 }
 
-pub struct Client {
-    pub ip: Ipv4Addr,
-    pub data_port: u16,
-    pub has_quit: bool,
-    pub username: String,
-    pub password: String,
-    pub data_repr: DataRepr,
-    pub renaming_from: Option<String>,
-
-    stream: CrlfStream,
+pub struct ProtocolInterpreter {
+    users: UserStore,
+    conn_timeout: Duration,
 }
 
-impl Client {
-    pub fn new(stream: TcpStream) -> Result<Client> {
-        let addr = stream.peer_addr()?;
-        let ip = match addr.ip() {
-            IpAddr::V4(ip) => ip,
-            IpAddr::V6(_) => panic!("IPv6 is not supported"),
-        };
-        stream.set_read_timeout(Some(Duration::from_secs(60)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(60)))?;
-
-        Ok(Client {
-            ip,
-            data_port: addr.port(),
-            has_quit: false,
-            username: "anonymous".to_owned(),
-            password: "anonymous".to_owned(),
-            data_repr: DataRepr::default(),
-            renaming_from: None,
-
-            stream: CrlfStream::new(stream),
-        })
-    }
-
-    pub fn send_reply(&mut self, reply: Reply) -> Result<()> {
-        let msg = reply.to_string();
-        log::debug!("----> {}", msg);
-        self.stream.send_message(msg.as_str())?;
-        Ok(())
-    }
-
-    pub fn read_command(&mut self) -> Result<Command> {
-        let msg = self.stream.read_message()?;
-        log::debug!("<---- {}", msg);
-        let command = Command::parse_line(msg.as_str())?;
-        Ok(command)
-    }
-}
-
-pub struct ProtocolInterpreter<'a> {
-    dtp: &'a mut DataTransferProcess,
-}
-
-impl<'a> ProtocolInterpreter<'a> {
-    pub fn new(dtp: &mut DataTransferProcess) -> ProtocolInterpreter {
-        ProtocolInterpreter { dtp }
+impl ProtocolInterpreter {
+    pub fn new(users: UserStore, conn_timeout: Duration) -> ProtocolInterpreter {
+        ProtocolInterpreter {
+            users,
+            conn_timeout,
+        }
     }
 
     pub fn handle_client(&mut self, stream: TcpStream) -> Result<()> {
-        let mut client = Client::new(stream)?;
-        log::info!("Got a new connection from {}", client.ip);
-        client.send_reply(Reply::ServiceReady)?;
+        let ip = stream.peer_addr()?.ip();
+        let ip = match ip {
+            IpAddr::V4(ip) => ip,
+            IpAddr::V6(_) => panic!("Got connection with IPv6. This should not have happened"),
+        };
+        let mut stream = CrlfStream::new(stream);
+        let mut client = Client::new(ip);
+        log::info!("Got a new connection from {}", client.data_ip);
+        Self::send_reply(&mut stream, Reply::ServiceReady)?;
 
         while !client.has_quit {
-            let command = match client.read_command() {
+            let command = match Self::read_command(&mut stream) {
                 Ok(command) => command,
                 Err(e) => {
                     log::error!("{}", e);
-                    client.send_reply(Reply::SyntaxError)?;
+                    Self::send_reply(&mut stream, Reply::SyntaxError)?;
                     continue;
                 }
             };
-            let reply = match self.dispatch_command(command, &mut client) {
+            let reply = match self.dispatch_command(command, &mut client, &mut stream) {
                 Ok(reply) => reply,
                 Err(e) => {
                     log::warn!("Client's request could not be honored: {}", e);
                     e.into()
                 }
             };
-            client.send_reply(reply)?;
+            Self::send_reply(&mut stream, reply)?;
         }
-        log::info!("Connection with client {} properly closed.", client.ip);
+        log::info!("Connection with client {} properly closed.", client.data_ip);
         Ok(())
     }
 
-    fn dispatch_command(&mut self, command: Command, client: &mut Client) -> Result<Reply> {
+    fn send_reply(stream: &mut CrlfStream, reply: Reply) -> Result<()> {
+        let msg = reply.to_string();
+        log::debug!("----> {}", msg);
+        stream.send_message(msg.as_str())?;
+        Ok(())
+    }
+
+    pub fn read_command(stream: &mut CrlfStream) -> Result<Command> {
+        let msg = stream.read_message()?;
+        log::debug!("<---- {}", msg);
+        let command = Command::parse_line(msg.as_str())?;
+        Ok(command)
+    }
+
+    fn dispatch_command(
+        &self,
+        command: Command,
+        client: &mut Client,
+        stream: &mut CrlfStream,
+    ) -> Result<Reply> {
         match command {
-            Command::Quit => Self::quit(client),
-            Command::Port(host_port) => Self::port(client, host_port),
-            Command::User(username) => Self::username(client, username),
-            Command::Pass(pass) => Self::password(client, pass),
-            Command::Mode(mode) => Self::mode(client, mode),
-            Command::Stru(data_structure) => Self::stru(client, data_structure),
-            Command::Type(data_type) => Self::type_(client, data_type),
-            Command::Pasv => self.pasv(client),
-            Command::Retr(path) => self.retr(client, path),
-            Command::Nlst(path) => self.nlist(client, path),
-            Command::Stor(path) => self.stor(client, path),
-            Command::Pwd => Ok(self.pwd()),
-            Command::Cwd(path) => self.cwd(&path),
-            Command::Mkd(path) => self.mkdir(path),
-            Command::Dele(path) => self.dele(&path),
-            Command::Rnfr(from) => self.rename_from(client, from),
-            Command::Rnto(to) => self.rename_to(client, &to),
-            Command::Cdup => self.cdup(),
-            _ => Ok(Reply::CommandOk),
-        }
-    }
-
-    fn quit(client: &mut Client) -> Result<Reply> {
-        client.has_quit = true;
-        Ok(Reply::ServiceClosing)
-    }
-
-    fn port(client: &mut Client, host_port: HostPort) -> Result<Reply> {
-        client.data_port = host_port.port;
-        Ok(Reply::CommandOk)
-    }
-
-    fn username(client: &mut Client, username: String) -> Result<Reply> {
-        client.username = username;
-        Ok(Reply::UsernameOk)
-    }
-
-    fn password(client: &mut Client, pass: String) -> Result<Reply> {
-        client.password = pass;
-        Ok(Reply::UserLoggedIn)
-    }
-
-    fn mode(client: &mut Client, mode: TransferMode) -> Result<Reply> {
-        client.data_repr.transfer_mode = mode;
-        Ok(Reply::CommandOk)
-    }
-
-    fn stru(client: &mut Client, data_structure: DataStructure) -> Result<Reply> {
-        client.data_repr.data_structure = data_structure;
-        Ok(Reply::CommandOk)
-    }
-
-    fn type_(client: &mut Client, data_type: DataType) -> Result<Reply> {
-        client.data_repr.data_type = data_type;
-        Ok(Reply::CommandOk)
-    }
-
-    fn pasv(&mut self, _client: &mut Client) -> Result<Reply> {
-        let addr = self.dtp.make_passive()?;
-        let ip = match addr.ip() {
-            IpAddr::V4(ip) => ip,
-            IpAddr::V6(_) => panic!("IPv6 is not supported"),
-        };
-        Ok(Reply::EnteringPassiveMode(HostPort {
-            ip,
-            port: addr.port(),
-        }))
-    }
-
-    fn retr(&mut self, client: &mut Client, path: String) -> Result<Reply> {
-        self.connect_dtp(client)?;
-        self.dtp.send_file(path.as_str())?;
-        Ok(Reply::ClosingDataConnection)
-    }
-
-    fn stor(&mut self, client: &mut Client, path: String) -> Result<Reply> {
-        self.connect_dtp(client)?;
-        self.dtp.receive_file(path.as_str())?;
-        Ok(Reply::ClosingDataConnection)
-    }
-
-    fn nlist(&mut self, client: &mut Client, path: Option<String>) -> Result<Reply> {
-        self.connect_dtp(client)?;
-        self.dtp.send_dir_nlisting(path)?;
-        Ok(Reply::ClosingDataConnection)
-    }
-
-    fn pwd(&self) -> Reply {
-        Reply::Created(self.dtp.get_working_dir())
-    }
-
-    fn cwd(&mut self, path: &str) -> Result<Reply> {
-        self.dtp.change_working_dir(path)?;
-        Ok(Reply::FileActionOk)
-    }
-
-    fn mkdir(&self, path: String) -> Result<Reply> {
-        self.dtp.make_dir(&path)?;
-        Ok(Created(path))
-    }
-
-    fn dele(&self, path: &str) -> Result<Reply> {
-        self.dtp.delete_file(path)?;
-        Ok(Reply::FileActionOk)
-    }
-
-    fn rename_from(&self, client: &mut Client, from: String) -> Result<Reply> {
-        if !self.dtp.file_exists(&from)? {
-            return Err(Error::new(std::io::Error::from(
-                std::io::ErrorKind::NotFound,
-            )));
-        }
-        client.renaming_from = Some(from);
-        Ok(Reply::PendingFurtherInformation)
-    }
-
-    fn rename_to(&self, client: &mut Client, to: &str) -> Result<Reply> {
-        match client.renaming_from.take() {
-            //TODO: Create custom error type to handle this case correctly
-            None => Ok(Reply::BadCommandSequence),
-            Some(from) => {
-                self.dtp.rename(&from, to)?;
+            Command::Quit => {
+                client.quit();
+                Ok(Reply::ServiceClosing)
+            }
+            Command::Port(host_port) => {
+                client.port(host_port);
+                Ok(Reply::CommandOk)
+            }
+            Command::User(username) => {
+                client.user(username);
+                Ok(Reply::UsernameOk)
+            }
+            Command::Pass(pass) => {
+                let username = match &client.username {
+                    Some(username) => username,
+                    // Using PASS before USER
+                    None => return Ok(Reply::BadCommandSequence),
+                };
+                let user = match self.users.get(username) {
+                    Some(user) => user,
+                    None => return Ok(Reply::NotLoggedIn),
+                };
+                if pass == user.password {
+                    client.authorize(&user.dir, self.conn_timeout);
+                    Ok(Reply::UserLoggedIn)
+                } else {
+                    Ok(Reply::NotLoggedIn)
+                }
+            }
+            /*Ignored for now*/
+            Command::Mode(_) => Ok(Reply::CommandOk),
+            Command::Stru(_) => Ok(Reply::CommandOk),
+            Command::Type(_) => Ok(Reply::CommandOk),
+            /*Ignored for now*/
+            Command::Pasv => {
+                let host_port = client.pasv()?;
+                Ok(Reply::EnteringPassiveMode(host_port))
+            }
+            Command::Retr(path) => {
+                Self::connect_dtp(stream, client)?;
+                client.retr(&path)?;
+                Ok(Reply::ClosingDataConnection)
+            }
+            Command::Nlst(path) => {
+                Self::connect_dtp(stream, client)?;
+                client.nlst(path)?;
+                Ok(Reply::ClosingDataConnection)
+            }
+            Command::Stor(path) => {
+                Self::connect_dtp(stream, client)?;
+                client.stor(&path)?;
+                Ok(Reply::ClosingDataConnection)
+            }
+            Command::Pwd => {
+                let working_dir = client.pwd()?;
+                Ok(Reply::Created(working_dir))
+            }
+            Command::Cwd(path) => {
+                client.cwd(&path)?;
                 Ok(Reply::FileActionOk)
             }
-        }
-    }
-
-    fn cdup(&mut self) -> Result<Reply> {
-        self.dtp.change_working_dir("..")?;
-        Ok(Reply::CommandOk)
-    }
-
-    fn connect_dtp(&mut self, client: &mut Client) -> Result<()> {
-        if let Some(res) = self
-            .dtp
-            .connect(SocketAddr::new(IpAddr::V4(client.ip), client.data_port))
-        {
-            match res {
-                Ok(_) => {
-                    client.send_reply(Reply::OpeningDataConnection)?;
-                    Ok(())
-                }
-                Err(e) => Err(Error::new(e)),
+            Command::Mkd(path) => {
+                client.mkd(&path)?;
+                Ok(Reply::Created(path))
             }
-        } else {
-            Ok(())
+            Command::Dele(path) => {
+                client.dele(&path)?;
+                Ok(Reply::FileActionOk)
+            }
+            Command::Rnfr(from) => {
+                client.rnfr(&from)?;
+                Ok(Reply::PendingFurtherInformation)
+            }
+            Command::Rnto(to) => {
+                client.rnto(&to)?;
+                Ok(Reply::FileActionOk)
+            }
+            Command::Cdup => {
+                client.cdup()?;
+                Ok(Reply::CommandOk)
+            }
+            _ => Ok(Reply::NotImplemented),
         }
+    }
+
+    fn connect_dtp(stream: &mut CrlfStream, client: &mut Client) -> Result<()> {
+        client.connect_dtp()?;
+        Self::send_reply(stream, Reply::OpeningDataConnection)?;
+        Ok(())
     }
 }

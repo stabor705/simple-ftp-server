@@ -1,3 +1,4 @@
+mod client;
 mod command;
 mod config;
 mod data_transfer_process;
@@ -5,9 +6,11 @@ mod ftpserver;
 mod hostport;
 mod protocol_interpreter;
 mod reply;
+mod user;
 
-pub use command::{Command, CommandError};
-pub use config::Config;
+use client::{AuthError, Client};
+use command::{Command, CommandError};
+use data_transfer_process::DataTransferProcess;
 pub use ftpserver::FtpServer;
-pub use hostport::HostPort;
-pub use reply::Reply;
+use hostport::HostPort;
+use reply::Reply;

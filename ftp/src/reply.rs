@@ -1,7 +1,7 @@
-use std::io::ErrorKind;
-
+use crate::AuthError;
 use crate::CommandError;
 use crate::HostPort;
+use std::io::ErrorKind;
 
 use strum::EnumMessage;
 use strum_macros::EnumMessage;
@@ -176,6 +176,12 @@ impl From<Error> for Reply {
                     log::error!("Encountered unexpected io error {}", err);
                     LocalProcessingError
                 }
+            }
+        } else if e.is::<AuthError>() {
+            let err: AuthError = e.downcast().unwrap();
+            match err {
+                AuthError::NotLoggedIn => NotLoggedIn,
+                AuthError::PwdWhileNotLoggedIn => FileUnavailable,
             }
         } else {
             log::error!("Encountered unexpected error {}", e);

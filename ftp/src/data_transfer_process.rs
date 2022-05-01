@@ -85,45 +85,40 @@ pub struct DataRepr {
 pub struct DataTransferProcess {
     root: PathBuf,
     working_dir: PathBuf,
+    conn_timeout: Duration,
     mode: Box<dyn Mode + Sync + Send>,
     client: Option<TcpStream>,
+    renaming_from: Option<PathBuf>,
 }
 
 impl DataTransferProcess {
-    pub fn new(root: String) -> DataTransferProcess {
+    pub fn new(root: String, conn_timeout: Duration) -> DataTransferProcess {
         DataTransferProcess {
             root: PathBuf::from(root),
             working_dir: PathBuf::from("/"),
+            conn_timeout,
             mode: Box::new(Active {}),
             client: None,
+            renaming_from: None,
         }
     }
 
     pub fn make_passive(&mut self) -> Result<SocketAddr> {
-        let passive = Passive::new(Duration::from_secs(120))?;
+        let passive = Passive::new(self.conn_timeout)?;
         let addr = passive.addr()?;
         self.mode = Box::new(passive);
         log::info!("DTP started listening on port {}", addr);
         Ok(addr)
     }
 
-    pub fn connect(&mut self, addr: SocketAddr) -> Option<Result<()>> {
-        match self.client {
-            Some(_) => {
-                log::debug!("DataTrasferProcess::connect called when self.client is not None. It shouldn't happen!");
-                None
-            }
-            None => match self.mode.connect(addr) {
-                Ok(client) => {
-                    if let Ok(addr) = client.peer_addr() {
-                        log::info!("DTP connected with {}", addr);
-                    }
-                    self.client = Some(client);
-                    Some(Ok(()))
-                }
-                Err(e) => Some(Err(e)),
-            },
+    pub fn connect(&mut self, addr: SocketAddr) -> Result<()> {
+        if self.client.is_some() {
+            panic!("Tried opening data connection with one already opened.");
+            // Which means a problem with code logic. That makes it unrecoverable
+            // error to me.
         }
+        self.client = Some(self.mode.connect(addr)?);
+        Ok(())
     }
 
     fn build_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<PathBuf> {
@@ -232,15 +227,24 @@ impl DataTransferProcess {
         Ok(())
     }
 
-    pub fn rename(&self, from: &str, to: &str) -> Result<()> {
+    pub fn prepare_rename(&mut self, from: &str) -> Result<()> {
         let from = self.build_path(from)?;
-        let to = self.build_path(to)?;
-        rename(from, to)?;
+        if !from.exists() {
+            return Err(Error::from(ErrorKind::NotFound));
+        }
+        self.renaming_from = Some(from);
         Ok(())
     }
 
-    pub fn file_exists(&self, path: &str) -> Result<bool> {
-        Ok(self.build_path(path)?.exists())
+    pub fn rename(&mut self, to: &str) -> Result<()> {
+        //TODO: use custom error
+        let from = self.renaming_from.take().ok_or(Error::new(
+            ErrorKind::InvalidData,
+            "Tried renaming file without specifying renaming_from path",
+        ))?;
+        let to = self.build_path(to)?;
+        rename(from, to)?;
+        Ok(())
     }
 }
 
