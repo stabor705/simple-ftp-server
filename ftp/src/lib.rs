@@ -1,6 +1,5 @@
 mod client;
 mod command;
-mod config;
 mod data_transfer_process;
 mod ftpserver;
 mod hostport;

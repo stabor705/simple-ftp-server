@@ -10,6 +10,8 @@ use strum_macros::EnumMessage;
 
 use anyhow::Error;
 
+//TODO: I've had a revelation recently. Why not just put status codes into
+// messages? We don't work with status codes anyway. Lmao
 #[allow(dead_code)]
 #[derive(EnumMessage, PartialEq)]
 pub enum Reply {
