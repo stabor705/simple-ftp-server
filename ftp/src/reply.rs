@@ -1,7 +1,9 @@
+use std::io::ErrorKind;
+use std::net::Ipv4Addr;
+
 use crate::AuthError;
 use crate::CommandError;
 use crate::HostPort;
-use std::io::ErrorKind;
 
 use strum::EnumMessage;
 use strum_macros::EnumMessage;

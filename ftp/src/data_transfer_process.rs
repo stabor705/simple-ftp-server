@@ -1,5 +1,5 @@
 use std::fs::*;
-use std::io::{Error, ErrorKind, Read, Result, Write};
+use std::io::{Error, ErrorKind, Result, Write, copy};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
@@ -153,15 +153,7 @@ impl DataTransferProcess {
             .ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = self.build_path(path)?;
         let mut file = File::open(path)?;
-        loop {
-            //TODO: testing server by sending gigabytes of data to 1GB vps should be fun
-            let mut buf = [0; 8192];
-            let n = file.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            client.write_all(&buf[0..n])?;
-        }
+        copy(&mut file, &mut client)?;
         Ok(())
     }
 
@@ -172,14 +164,7 @@ impl DataTransferProcess {
             .ok_or(Error::from(ErrorKind::NotConnected))?;
         let path = self.build_path(path)?;
         let mut file = File::create(path)?;
-        loop {
-            let mut buf = [0; 8192];
-            let n = client.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            file.write_all(&buf[0..n])?;
-        }
+        copy(&mut client, &mut file)?;
         Ok(())
     }
 
