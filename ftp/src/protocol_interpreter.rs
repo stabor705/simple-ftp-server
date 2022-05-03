@@ -86,23 +86,30 @@ impl ProtocolInterpreter {
         };
         let mut stream = CrlfStream::new(stream);
         let mut client = Client::new(ip);
-        log::info!("Got a new connection from {}", client.data_ip);
         Self::send_reply(&mut stream, Reply::ServiceReady)?;
 
         while !client.has_quit {
             let command = match Self::read_command(&mut stream) {
                 Ok(command) => command,
-                Err(e) => {
-                    log::error!("{}", e);
-                    Self::send_reply(&mut stream, Reply::SyntaxError)?;
-                    continue;
+                Err(err) => {
+                    if err.is::<CommandError>() {
+                        let err: CommandError = err.downcast().unwrap();
+                        Self::send_reply(&mut stream, Reply::SyntaxError)?;
+                        log::debug!("{}", err);
+                        continue;
+                    } else if err.is::<std::io::Error>() {
+                        let err: std::io::Error = err.downcast().unwrap();
+                        log::error!("{}", err);
+                        break;
+                    }
+                    break;
                 }
             };
             let reply = match self.dispatch_command(command, &mut client, &mut stream) {
                 Ok(reply) => reply,
-                Err(e) => {
-                    log::warn!("Client's request could not be honored: {}", e);
-                    e.into()
+                Err(err) => {
+                    log::warn!("Client's request could not be honored: {}", err);
+                    err.into()
                 }
             };
             Self::send_reply(&mut stream, reply)?;

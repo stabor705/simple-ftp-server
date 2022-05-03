@@ -45,14 +45,16 @@ impl FtpServer {
 
     pub fn run(self) {
         let mut pi = ProtocolInterpreter::new(self.config.users, self.config.conn_timeout);
+        log::info!("Server started listening on {}", self.listener.local_addr().unwrap());
         for client in self.listener.incoming() {
             match client {
                 Ok(client) => {
-                    if let Err(e) = pi.handle_client(client) {
-                        log::error!("An error while handling connection: {:?}", e);
+                    let addr = client.peer_addr().unwrap();
+                    if let Err(err) = pi.handle_client(client) {
+                        log::error!("Connection with client {} returned error: {}", addr, err);
                     }
                 }
-                Err(e) => log::error!("An error occurred before connection took place: {}", e),
+                Err(err) => log::error!("An error occurred before connection took place: {}", err),
             }
         }
     }

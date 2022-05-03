@@ -28,6 +28,7 @@ pub enum Command {
     Rnfr(String),
     Rnto(String),
     Cdup,
+    List(String),
 
     // Not implemented
     Acct,
@@ -39,7 +40,6 @@ pub enum Command {
     Rest,
     Abor,
     Rmd,
-    List,
     Site,
     Syst,
     Stat,
