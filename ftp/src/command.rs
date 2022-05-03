@@ -28,7 +28,7 @@ pub enum Command {
     Rnfr(String),
     Rnto(String),
     Cdup,
-    List(String),
+    List(Option<String>),
 
     // Not implemented
     Acct,
@@ -163,6 +163,10 @@ impl Command {
             Rnto(_) => {
                 let path = arg.ok_or(CommandError::ArgMissing)?;
                 Rnto(path.to_owned())
+            }
+            List(_) => {
+                let path = arg.and_then(|x| Some(x.to_owned()));
+                List(path)
             }
             _ => command,
         };

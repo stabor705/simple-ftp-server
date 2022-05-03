@@ -2,7 +2,9 @@ use std::fs::*;
 use std::io::{copy, Error, ErrorKind, Result, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::str::from_utf8;
 use std::thread::sleep;
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use fallible_iterator::FallibleIterator;
@@ -174,6 +176,7 @@ impl DataTransferProcess {
             .take()
             .ok_or(Error::from(ErrorKind::NotConnected))?;
         let listing = self.get_dir_listing(&path.unwrap_or("".to_string()))?;
+        log::debug!("Sending to client directory nlisting:\n {:?}", listing);
         for filename in listing {
             client.write_all(filename.as_bytes())?;
             client.write_all("\r\n".as_bytes())?;
@@ -229,6 +232,24 @@ impl DataTransferProcess {
         ))?;
         let to = self.build_path(to)?;
         rename(from, to)?;
+        Ok(())
+    }
+
+    pub fn send_dir_listing(&mut self, path: Option<String>) -> Result<()> {
+        let mut client = self
+            .client
+            .take()
+            .ok_or(Error::from(ErrorKind::NotConnected))?;
+        let path = self.build_path(path.unwrap_or(".".to_owned()))?;
+        let listing = Command::new("ls")
+            .arg("-l")
+            .arg(path.to_owned())
+            .output()?
+            .stdout;
+        if let Ok(out) = from_utf8(listing.as_slice()) {
+            log::debug!("Sending directory listing:\n{}", out);
+        }
+        client.write_all(listing.as_slice())?;
         Ok(())
     }
 }

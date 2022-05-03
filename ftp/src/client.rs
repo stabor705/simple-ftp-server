@@ -100,6 +100,10 @@ impl Client {
         self.commands_impl.cdup()
     }
 
+    pub fn list(&mut self, path: Option<String>) -> Result<()> {
+        self.commands_impl.list(path)
+    }
+
     pub fn connect_dtp(&mut self) -> Result<()> {
         self.commands_impl
             .connect_dtp(SocketAddr::new(IpAddr::V4(self.data_ip), self.data_port))
@@ -118,6 +122,7 @@ trait CommandsImpl {
     fn rnfr(&mut self, path: &str) -> Result<()>;
     fn rnto(&mut self, path: &str) -> Result<()>;
     fn cdup(&mut self) -> Result<()>;
+    fn list(&mut self, path: Option<String>) -> Result<()>;
     fn connect_dtp(&mut self, addr: SocketAddr) -> Result<()>;
 }
 
@@ -192,6 +197,11 @@ impl CommandsImpl for LoggedIn {
         Ok(())
     }
 
+    fn list(&mut self, path: Option<String>) -> Result<()> {
+        self.dtp.send_dir_listing(path)?;
+        Ok(())
+    }
+
     fn connect_dtp(&mut self, addr: SocketAddr) -> Result<()> {
         self.dtp.connect(addr)?;
         Ok(())
@@ -242,6 +252,10 @@ impl CommandsImpl for NotLoggedIn {
     }
 
     fn cdup(&mut self) -> Result<()> {
+        Err(Error::new(AuthError::NotLoggedIn))
+    }
+
+    fn list(&mut self, _path: Option<String>) -> Result<()> {
         Err(Error::new(AuthError::NotLoggedIn))
     }
 

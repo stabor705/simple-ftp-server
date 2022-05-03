@@ -80,6 +80,7 @@ impl ProtocolInterpreter {
 
     pub fn handle_client(&mut self, stream: TcpStream) -> Result<()> {
         let ip = stream.peer_addr()?.ip();
+        log::info!("Got a new connection from {}", ip);
         let ip = match ip {
             IpAddr::V4(ip) => ip,
             IpAddr::V6(_) => panic!("Got connection with IPv6. This should not have happened"),
@@ -219,6 +220,11 @@ impl ProtocolInterpreter {
             Command::Cdup => {
                 client.cdup()?;
                 Ok(Reply::CommandOk)
+            }
+            Command::List(path) => {
+                Self::connect_dtp(stream, client)?;
+                client.list(path)?;
+                Ok(Reply::FileActionOk)
             }
             _ => Ok(Reply::NotImplemented),
         }
