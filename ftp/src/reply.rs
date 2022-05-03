@@ -1,5 +1,4 @@
 use std::io::ErrorKind;
-use std::net::Ipv4Addr;
 
 use crate::AuthError;
 use crate::CommandError;

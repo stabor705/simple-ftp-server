@@ -1,15 +1,31 @@
-use clap::{Command, command, Arg}
+use std::net::Ipv4Addr;
 
-pub fn build_cli() -> Command {
-    command!()
-        .arg(Arg::new()
-             .long("ip")
-             .help("IP address in form x.x.x.x of network interface the server "
-                   "will try to listen on. Defaults to LOCALHOST."))
-        .arg(Arg::new()
-             .long("port")
-             .help("Sets the port on which server will listen for incoming "
-                   "control connections. Should be a valid port number. "
-                   "Will listen on random available port if set to 0."))
+use clap::Parser;
 
+use super::{Config, ConfigChanges};
+
+#[derive(Parser)]
+#[clap(version, author)]
+pub struct CliConfig {
+    /// Sets the path to toml configuration file
+    #[clap(name = "config", short, long)]
+    pub config_file: Option<String>,
+
+    /// Sets the ip address server will try to use
+    #[clap(short, long)]
+    pub ip: Option<Ipv4Addr>,
+    /// Sets the port number the server will try to bind to
+    #[clap(short, long)]
+    pub port: Option<u16>,
+}
+
+impl ConfigChanges for CliConfig {
+    fn apply(&self, config: &mut Config) {
+        if let Some(ip) = self.ip {
+            config.ip = ip;
+        }
+        if let Some(port) = self.port {
+            config.port = port;
+        }
+    }
 }

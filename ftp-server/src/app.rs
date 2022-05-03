@@ -1,6 +1,7 @@
-use crate::{Config, TomlConfig};
+use crate::config::{CliConfig, Config, TomlConfig};
 use ftp::{FtpConfig, FtpServer};
 
+use clap::Parser;
 use user_error::UserFacingError;
 
 use std::concat;
@@ -15,25 +16,21 @@ impl App {
     pub fn run() -> Result<(), UserFacingError> {
         let mut config = Config::default();
 
-        if let Some((path, toml_input)) = Self::read_file_config() {
-            match TomlConfig::from_str(&toml_input) {
-                Ok(toml_config) => {
-                    config.merge(&toml_config);
-                }
-                Err(err) => {
-                    let error = UserFacingError::new(format!("Unable to decode {} file", path))
-                        .reason("Could not deserialize toml input");
-                    let error = match err.line_col() {
-                        None => error,
-                        Some((line, col)) => {
-                            error.help(format!("The problem is on line {} column {}", line, col))
-                        }
-                    };
-                    let error = error.help(format!("{}", err));
-                    return Err(error);
-                }
-            }
+        let cli_config = CliConfig::parse();
+
+        let toml_config = if let Some(toml_path) = &cli_config.config_file {
+            let toml_input = Self::fallible_config_read(toml_path)?;
+            Some((toml_path.to_string(), toml_input))
+        } else {
+            Self::read_default_config()
+        };
+
+        if let Some((toml_path, toml_input)) = toml_config {
+            let toml_config = Self::decode_toml(&toml_path, &toml_input)?;
+            config.merge(&toml_config);
         }
+
+        config.merge(&cli_config);
 
         let ftp_config = FtpConfig {
             ip: config.ip,
@@ -42,10 +39,15 @@ impl App {
             conn_timeout: Duration::from_secs(180),
         };
 
-        let ftp_server = match FtpServer::new(ftp_config) {
+        Self::run_server(ftp_config)?;
+        Ok(())
+    }
+
+    fn run_server(ftp_config: FtpConfig) -> Result<(), UserFacingError> {
+        let ftp_server = match FtpServer::new(ftp_config.clone()) {
             Ok(server) => server,
             Err(err) => {
-                let error = UserFacingError::new(format!("Failed to bind on port {}", config.port));
+                let error = UserFacingError::new(format!("Failed to bind on port {}", ftp_config.port));
                 let error = match err.kind() {
                     ErrorKind::PermissionDenied => error
                         .reason("Lacking required permissions")
@@ -53,7 +55,7 @@ impl App {
                     ErrorKind::AddrInUse => error.reason("Port is already in use").help(concat!(
                         "Try changing port server tries to use or ",
                         "find process that uses requested port and ",
-                       "kill it"
+                        "kill it"
                     )),
                     ErrorKind::AddrNotAvailable => error
                         .reason("A nonexistent interface was requested")
@@ -69,14 +71,51 @@ impl App {
         Ok(())
     }
 
-    fn read_file_config() -> Option<(&'static str, String)> {
+    fn fallible_config_read(path: &str) -> Result<String, UserFacingError> {
+        match read_to_string(path) {
+            Ok(config) => Ok(config),
+            Err(err) => {
+                let error = UserFacingError::new(format!("Could not read {} config file", path));
+                let error = match err.kind() {
+                    ErrorKind::NotFound => error.reason("File not found"),
+                    ErrorKind::PermissionDenied => {
+                        error.reason("Insufficient permissions to open the file")
+                    }
+                    ErrorKind::InvalidData => error.reason("Config file is probably invalid UTF-8"),
+                    _ => error.reason("It is due to unexpected reasons"),
+                };
+                let error = error.help(err.to_string());
+                return Err(error);
+            }
+        }
+    }
+
+    fn read_default_config() -> Option<(String, String)> {
         static TOML_CONFIG_PATHS: &[&str] = &["config.toml"];
 
         for path in TOML_CONFIG_PATHS {
             if let Ok(config) = read_to_string(path) {
-                return Some((path, config));
+                return Some((path.to_string(), config));
             }
         }
         None
+    }
+
+    fn decode_toml(toml_path: &str, toml_input: &str) -> Result<TomlConfig, UserFacingError> {
+        match TomlConfig::from_str(toml_input) {
+            Ok(toml_config) => Ok(toml_config),
+            Err(err) => {
+                let error = UserFacingError::new(format!("Unable to decode {} file", toml_path))
+                    .reason("Could not deserialize toml input");
+                let error = match err.line_col() {
+                    None => error,
+                    Some((line, col)) => {
+                        error.help(format!("The problem is on line {} column {}", line, col))
+                    }
+                };
+                let error = error.help(err.to_string());
+                return Err(error);
+            }
+        }
     }
 }

@@ -7,6 +7,7 @@ use crate::user::*;
 
 use anyhow::Result;
 
+#[derive(Clone)]
 pub struct FtpConfig {
     pub ip: Ipv4Addr,
     pub port: u16,
