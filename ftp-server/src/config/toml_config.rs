@@ -49,14 +49,16 @@ impl ConfigChanges for TomlConfig {
         }
         if let Some(log_opts) = &self.log_opts {
             if let Some(file_log_opts) = log_opts.file_log_opts.clone() {
-                config.file_log_opts.file_path = file_log_opts.path.clone();
-                config.file_log_opts.level = file_log_opts.level.into();
+                config.log.file = Some(super::FileLogOpts {
+                    file_path: file_log_opts.path.clone(),
+                    level: file_log_opts.level.into()
+                });
             }
             if let Some(console_log_opts) = log_opts.console_log_opts.clone() {
-                config.console_log_opts.level = console_log_opts.level.into();
+                config.log.console.level= console_log_opts.level.into();
             }
             if let Some(syslog_opts) = log_opts.syslog_opts.clone() {
-                config.syslog_opts.level = syslog_opts.level.into();
+                config.log.sys.level = syslog_opts.level.into();
             }
         }
     }
@@ -66,7 +68,7 @@ impl ConfigChanges for TomlConfig {
 struct ServerConfig {
     ip: Option<Ipv4Addr>,
     port: Option<u16>,
-    timeout: Option<u32>,
+    timeout: Option<u64>,
 }
 
 #[derive(Deserialize)]

@@ -8,11 +8,9 @@ use log::LevelFilter;
 pub struct Config {
     pub ip: Ipv4Addr,
     pub port: u16,
-    pub timeout: u32,
+    pub timeout: u64,
     pub users: Vec<User>,
-    pub file_log_opts: FileLogOpts,
-    pub console_log_opts: ConsoleLogOpts,
-    pub syslog_opts: SysLogOpts,
+    pub log: LogOpts
 }
 
 impl Default for Config {
@@ -22,9 +20,7 @@ impl Default for Config {
             port: 21,
             timeout: 180,
             users: Vec::new(),
-            file_log_opts: FileLogOpts::default(),
-            console_log_opts: ConsoleLogOpts::default(),
-            syslog_opts: SysLogOpts::default(),
+            log: LogOpts::default()
         }
     }
 }
@@ -47,6 +43,13 @@ impl Config {
 
 pub trait ConfigChanges {
     fn apply(&self, config: &mut Config);
+}
+
+#[derive(Default)]
+pub struct LogOpts {
+    pub file: Option<FileLogOpts>,
+    pub console: ConsoleLogOpts,
+    pub sys: SysLogOpts
 }
 
 pub struct FileLogOpts {
@@ -82,7 +85,7 @@ pub struct SysLogOpts {
 impl Default for SysLogOpts {
     fn default() -> Self {
         SysLogOpts {
-            level: LevelFilter::Error,
+            level: LevelFilter::Info,
         }
     }
 }
