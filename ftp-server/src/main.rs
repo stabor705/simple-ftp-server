@@ -1,21 +1,11 @@
-use std::fs::File;
+mod app;
+mod config;
 
-use ftp::FtpServer;
+use app::App;
+pub use config::{Config, TomlConfig};
 
-use simplelog::*;
-use anyhow::Result;
-
-fn main() -> Result<()> {
-    CombinedLogger::init(
-        vec![
-            TermLogger::new(LevelFilter::Warn, Config::default(),
-                            TerminalMode::Mixed, ColorChoice::Auto),
-            WriteLogger::new(LevelFilter::Debug, Config::default(),
-                             File::create("log.log").unwrap())
-
-        ]
-    ).unwrap();
-    let mut ftp = FtpServer::new(ftp_config::Config::default())?;
-    ftp.run();
-    Ok(())
+fn main() {
+    if let Err(err) = App::run() {
+        eprint!("{}", err);
+    }
 }

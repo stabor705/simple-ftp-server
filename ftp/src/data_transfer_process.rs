@@ -1,5 +1,5 @@
 use std::fs::*;
-use std::io::{Error, ErrorKind, Result, Write, copy};
+use std::io::{copy, Error, ErrorKind, Result, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::thread::sleep;

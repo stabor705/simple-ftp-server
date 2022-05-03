@@ -10,6 +10,7 @@ mod user;
 use client::{AuthError, Client};
 use command::{Command, CommandError};
 use data_transfer_process::DataTransferProcess;
-pub use ftpserver::FtpServer;
+pub use ftpserver::{FtpConfig, FtpServer};
 use hostport::HostPort;
 use reply::Reply;
+pub use user::{User, UserData};

@@ -1,3 +1,5 @@
+use std::clone::Clone;
+use std::collections::HashMap;
 use std::io;
 use std::io::{Read, Write};
 use std::net::{IpAddr, TcpStream};
@@ -60,12 +62,16 @@ impl CrlfStream {
 }
 
 pub struct ProtocolInterpreter {
-    users: UserStore,
+    users: HashMap<Username, UserData>,
     conn_timeout: Duration,
 }
 
 impl ProtocolInterpreter {
-    pub fn new(users: UserStore, conn_timeout: Duration) -> ProtocolInterpreter {
+    pub fn new(users: Vec<User>, conn_timeout: Duration) -> ProtocolInterpreter {
+        let users: HashMap<String, UserData> = users
+            .iter()
+            .map(|user| (user.username.clone(), user.data.clone()))
+            .collect();
         ProtocolInterpreter {
             users,
             conn_timeout,
